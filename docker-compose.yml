@@ -41,7 +41,7 @@ services:
       CORS_ORIGIN: http://localhost:5173
     ports:
       - "3000:3000"
-    command: sh -c "node dist/database/run-migrations.js && node dist/main.js"
+    # Migrations run automatically via the image's default CMD.
 
 volumes:
   pgdata:

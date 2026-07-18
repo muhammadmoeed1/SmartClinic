@@ -1,0 +1,46 @@
+# Render Blueprint (Infrastructure as Code) for the SmartClinic backend.
+# Deploy: push this repo, then on render.com choose "New +" → "Blueprint" and
+# point it at this repository. Render reads this file and provisions the service.
+#
+# The PostgreSQL database is hosted separately on Neon (free tier, includes
+# pgvector). Set DATABASE_URL below to the Neon connection string.
+services:
+  - type: web
+    name: smartclinic-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    region: oregon
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      # Neon Postgres connection string (postgresql://...:...@...neon.tech/db?sslmode=require)
+      - key: DATABASE_URL
+        sync: false
+      # Generate strong random secrets in the Render dashboard.
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: JWT_ACCESS_TTL
+        value: 900s
+      - key: JWT_REFRESH_TTL
+        value: 7d
+      # AI proxy — Groq free tier (OpenAI-compatible). Leave AI_API_KEY unset to
+      # demo graceful degradation; set it to enable the live AI features.
+      - key: AI_PROVIDER
+        value: openai
+      - key: AI_MODEL
+        value: llama-3.3-70b-versatile
+      - key: AI_BASE_URL
+        value: https://api.groq.com/openai/v1
+      - key: AI_API_KEY
+        sync: false
+      # Comma-separated allowed origins — set to your Vercel frontend URL.
+      - key: CORS_ORIGIN
+        sync: false

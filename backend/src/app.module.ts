@@ -3,7 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
 import { APP_GUARD } from '@nestjs/core';
-import * as path from 'path';
+import { buildDbConfig } from './database/db-config';
 
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
@@ -13,6 +13,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { PreAuthModule } from './preauth/preauth.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AiModule } from './ai/ai.module';
+import { HealthModule } from './health/health.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 
@@ -21,14 +22,7 @@ import { RolesGuard } from './common/guards/roles.guard';
     ConfigModule.forRoot({ isGlobal: true }),
     ScheduleModule.forRoot(),
     TypeOrmModule.forRoot({
-      type: 'postgres',
-      host: process.env.DB_HOST || 'localhost',
-      port: parseInt(process.env.DB_PORT || '5432', 10),
-      username: process.env.DB_USER || 'smartclinic',
-      password: process.env.DB_PASSWORD || 'smartclinic',
-      database: process.env.DB_NAME || 'smartclinic',
-      entities: [path.join(__dirname, 'entities/*.entity.{ts,js}')],
-      synchronize: false,
+      ...buildDbConfig(),
       autoLoadEntities: true,
     }),
     AuthModule,
@@ -39,6 +33,7 @@ import { RolesGuard } from './common/guards/roles.guard';
     PreAuthModule,
     AnalyticsModule,
     AiModule,
+    HealthModule,
   ],
   providers: [
     // Global guards: every route requires a valid JWT unless marked @Public();
