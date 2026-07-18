@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgres:15-alpine
+    image: pgvector/pgvector:pg15
     container_name: smartclinic-db
     environment:
       POSTGRES_USER: smartclinic
@@ -34,9 +34,10 @@ services:
       JWT_REFRESH_SECRET: change-me-refresh-secret
       JWT_ACCESS_TTL: 900s
       JWT_REFRESH_TTL: 7d
-      AI_PROVIDER: anthropic
+      AI_PROVIDER: openai
       AI_API_KEY: ${AI_API_KEY:-}
-      AI_MODEL: claude-sonnet-5
+      AI_MODEL: llama-3.3-70b-versatile
+      AI_BASE_URL: https://api.groq.com/openai/v1
       CORS_ORIGIN: http://localhost:5173
     ports:
       - "3000:3000"

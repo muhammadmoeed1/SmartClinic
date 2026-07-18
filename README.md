@@ -1,6 +1,8 @@
 # SmartClinic — AI-Augmented Outpatient Management Platform
 
-Full-stack course project featuring a **React 18 + TypeScript** frontend, **NestJS** backend, **PostgreSQL 15** database, **Socket.io** real-time notifications, **JWT authentication**, and an **AI proxy layer** (Anthropic Claude / OpenAI compatible).
+[![CI](https://github.com/daniyal5293/SmartClinic/actions/workflows/ci.yml/badge.svg)](https://github.com/daniyal5293/SmartClinic/actions/workflows/ci.yml)
+
+Full-stack project featuring a **React 18 + TypeScript** frontend, **NestJS** backend, **PostgreSQL 15 (pgvector)** database, **Socket.io** real-time notifications, **JWT authentication**, and an **AI proxy layer** (Anthropic Claude / OpenAI compatible).
 
 The entire application (database + backend) runs in **Docker**, so no manual database installation or configuration is required.
 

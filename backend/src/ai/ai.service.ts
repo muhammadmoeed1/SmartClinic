@@ -2,7 +2,7 @@ import {
   BadRequestException, ForbiddenException, Injectable, NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, In, Repository } from 'typeorm';
+import { Between, Repository } from 'typeorm';
 import { randomUUID } from 'crypto';
 import { Appointment, DoctorProfile, TriageSummary, VisitRecord, TriageData } from '../entities';
 import { AppointmentStatus, SPECIALTIES } from '../common/enums';

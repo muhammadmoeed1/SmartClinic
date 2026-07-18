@@ -9,7 +9,7 @@ import { AppDataSource } from './data-source';
 import {
   User, DoctorProfile, Room, Appointment, PreAuth, VisitRecord,
 } from '../entities';
-import { AppointmentStatus, PreAuthStatus, Role, SPECIALTIES, INSURANCE_PROVIDERS } from '../common/enums';
+import { AppointmentStatus, PreAuthStatus, Role, INSURANCE_PROVIDERS } from '../common/enums';
 
 const PASSWORD = 'Password1!';
 
@@ -61,7 +61,7 @@ async function main() {
 
   const hash = await bcrypt.hash(PASSWORD, 10);
 
-  const admin = await users.save(users.create({
+  await users.save(users.create({
     email: 'admin@smartclinic.test', passwordHash: hash,
     fullName: 'Clinic Admin', phone: '+92-300-0000001', role: Role.ADMIN,
   }));
@@ -119,8 +119,8 @@ async function main() {
       const bookings = 4 + rand(6); // 4-9 bookings out of 16 slots
       const usedHours = new Set<number>();
       for (let b = 0; b < bookings; b++) {
-        let hour = 9 + rand(8);
-        let minute = rand(2) * 30;
+        const hour = 9 + rand(8);
+        const minute = rand(2) * 30;
         const key = hour * 100 + minute;
         if (usedHours.has(key)) continue;
         usedHours.add(key);

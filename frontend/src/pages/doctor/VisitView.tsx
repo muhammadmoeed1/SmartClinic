@@ -76,7 +76,7 @@ export default function VisitView() {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [appointmentId]);
 
   function applyRecord(r: VisitRecordDto) {
