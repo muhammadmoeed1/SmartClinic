@@ -6,3 +6,4 @@ coverage/
 *.local
 uploads/
 .DS_Store
+.tools/
