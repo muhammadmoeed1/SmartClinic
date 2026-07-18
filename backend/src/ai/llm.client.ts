@@ -12,8 +12,6 @@ export class AiUnavailableException extends ServiceUnavailableException {
 }
 
 /**
- * Provider-agnostic LLM client (Anthropic Messages API or OpenAI-compatible
- * chat completions), selected via AI_PROVIDER. Uses global fetch — no SDK.
  * The API key never leaves this backend module.
  */
 @Injectable()
@@ -61,7 +59,8 @@ export class LlmClient {
   }
 
   private async openai(system: string, messages: ChatMessage[], maxTokens: number) {
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    const baseUrl = process.env.AI_BASE_URL || 'https://api.openai.com/v1';
+    const res = await fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
