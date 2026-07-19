@@ -16,11 +16,24 @@ services:
       timeout: 3s
       retries: 10
 
+  redis:
+    image: redis:7-alpine
+    container_name: smartclinic-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   backend:
     build: ./backend
     container_name: smartclinic-api
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     environment:
       NODE_ENV: production
@@ -30,6 +43,7 @@ services:
       DB_USER: smartclinic
       DB_PASSWORD: smartclinic
       DB_NAME: smartclinic
+      REDIS_URL: redis://redis:6379
       JWT_ACCESS_SECRET: change-me-access-secret
       JWT_REFRESH_SECRET: change-me-refresh-secret
       JWT_ACCESS_TTL: 900s

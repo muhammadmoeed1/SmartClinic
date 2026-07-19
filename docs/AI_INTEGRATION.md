@@ -1,69 +1,159 @@
 # SmartClinic — AI Integration Technical Notes
 
-> Reference material for writing the AI Integration Report (Deliverable 4).
-> The full prompt templates live in `backend/src/ai/prompts.ts` — they are the
-> single source of truth used at runtime. The report itself (rationale,
-> iterations, ethics paragraph) must be written by the team.
+> Reference material for the AI Integration Report. The full prompt templates
+> and tool schemas live in `backend/src/ai/prompts.ts` — they are the single
+> source of truth used at runtime.
 
 ## Architecture
 
 ```
 React (no keys, no direct LLM calls)
-   │  REST
+   │  REST + SSE
    ▼
 NestJS AI proxy module (backend/src/ai/)
-   ├── ai.controller.ts    role-guarded endpoints
-   ├── ai.service.ts       feature logic + intake session store
-   ├── llm.client.ts       provider-agnostic client (Anthropic / OpenAI via env)
-   ├── prompts.ts          all system prompts
+   ├── ai.controller.ts    role-guarded endpoints (incl. SSE stream)
+   ├── ai.service.ts       feature logic + agentic intake loop
+   ├── llm.client.ts       provider-agnostic client: tool-use + streaming
+   ├── session-store.ts    intake conversation state (Redis, or in-memory)
+   ├── prompts.ts          system prompts + tool JSON Schemas
    └── no-show.service.ts  rule-based risk scoring (no LLM)
+   │
+   ├──▶ knowledge/knowledge.service.ts   RAG search (pgvector cosine distance)
+   │       └── embedding/embedding.service.ts  local MiniLM embeddings (no API)
+   │
    │  HTTPS (AI_API_KEY from .env, never sent to the frontend)
    ▼
 LLM API (AI_PROVIDER=anthropic|openai, AI_MODEL from .env)
 ```
 
-The mandatory constraint "AI proxy between frontend and LLM" is met by role
-guards on `/ai/*` plus the key living only in backend env.
+The mandatory "AI proxy between frontend and LLM" constraint is met by role
+guards on `/ai/*` plus the key living only in backend env — including for the
+streaming endpoint, which still goes through the same guards before the
+handler ever touches the response.
 
-## Feature 1 — Patient Intake Chatbot
+## Retrieval-Augmented Generation (RAG)
 
-- **Endpoints**: `POST /ai/intake/start`, `POST /ai/intake/message`, fallback `POST /ai/intake/manual`, doctor view `GET /ai/triage/:appointmentId`.
-- **Eligibility**: server verifies a `scheduled` appointment within 24h before starting a session.
-- **Context management**: the full message history is kept server-side in an in-memory `Map` keyed by `sessionId` (1-hour TTL) and replayed to the LLM on every turn. The frontend only ever sends the latest user message — it cannot tamper with history. (Tradeoff to document: sessions do not survive a server restart; a Redis store would fix this.)
-- **Structured output**: the system prompt instructs the model to emit the final summary between `<SUMMARY>{json}</SUMMARY>` markers only when all five fields are collected. The backend regex-extracts and JSON-parses it; on success the summary is persisted to `triage_summaries` and the session is deleted.
-- **Safety rails in the prompt**: one question per turn, no diagnosis/advice, red-flag escalation wording, no invented data.
-- **Graceful degradation** (the mandatory one): if `AI_API_KEY` is unset or the provider errors, the API returns `503 { fallback: true }` and the React widget swaps to a static intake form that posts the same fields to `/ai/intake/manual` (stored with `source: 'manual'`).
+Two pgvector-backed sources, both searched by cosine distance (`<=>`), not
+keyword match:
 
-## Feature 2 — Smart Appointment Recommender
+1. **Static knowledge base** (`knowledge_chunks` table) — specialty-routing
+   guidance, triage red-flag cues, and SOAP documentation tips, seeded via
+   `npm run seed:knowledge` (see `backend/src/database/knowledge-base.ts`).
+2. **Patient visit history** (`visit_records.embedding`) — each finalized
+   visit record is embedded (`RecordsService.embedRecord`) so the recommender
+   can retrieve a patient's *most semantically relevant* past visits instead
+   of just the most recent ones chronologically.
+
+Embeddings are computed **locally and for free** via `@xenova/transformers`
+running a quantized MiniLM model in-process (`EmbeddingService`) — no
+external embeddings API, no additional cost. The model loads lazily on first
+use and any failure degrades to "no RAG context" rather than breaking the
+request, consistent with the rest of this project's AI degradation
+philosophy.
+
+## Tool-use / structured output
+
+Every feature that needs structured data calls a provider tool (JSON-Schema
+validated function/tool call) instead of asking the model to emit JSON in
+free text and parsing it with regex:
+
+- `recommend_specialty` — forced tool call for the Smart Recommender.
+- `format_soap_note` — forced tool call for the SOAP formatter.
+- `record_intake_summary` — the intake chatbot calls this itself, once all
+  five fields are collected, instead of emitting a `<SUMMARY>` marker.
+- `search_knowledge_base` — the intake chatbot can call this *itself*, mid
+  conversation, when unsure how to handle something the patient said (an
+  agentic step: the model decides when to retrieve, not the backend).
+
+`LlmClient.runAgentStep()` implements this once per provider (Anthropic tool
+use / OpenAI-compatible function calling) so callers never touch raw
+provider response shapes.
+
+## Feature 1 — Patient Intake Chatbot (agentic + streamed)
+
+- **Endpoints**: `POST /ai/intake/start`, `POST /ai/intake/message` (buffered),
+  `POST /ai/intake/message/stream` (Server-Sent Events), fallback
+  `POST /ai/intake/manual`, doctor view `GET /ai/triage/:appointmentId`.
+- **Eligibility**: server verifies a `scheduled` appointment within 24h before
+  starting a session.
+- **Context management**: the full agent message history (including any tool
+  calls/results) is kept in `SessionStore`, keyed by `sessionId` (1-hour TTL).
+  Backed by Redis when `REDIS_URL` is set (required once there's more than
+  one backend instance) or in-process memory otherwise. The frontend only
+  ever sends the latest user message — it cannot tamper with history.
+- **Agentic loop**: each turn, the model can call `search_knowledge_base`
+  (executed server-side, result fed back for another turn, capped at 3 hops)
+  before replying, and must call `record_intake_summary` once all five
+  fields are collected.
+- **Streaming**: the streamed endpoint yields the assistant's reply as text
+  deltas in real time (`AgentStreamEvent`) while accumulating any tool-call
+  arguments in the background; a final `done` event carries completion
+  status. The non-streamed endpoint runs the same loop without incremental
+  output, for simpler clients.
+- **Safety rails in the prompt**: one question per turn, no diagnosis/advice,
+  red-flag escalation wording, no invented data.
+- **Graceful degradation**: if `AI_API_KEY` is unset or the provider errors,
+  the API returns `503 { fallback: true }` (or an SSE `error` event with
+  `fallback: true`) and the React widget swaps to a static intake form.
+
+## Feature 2 — Smart Appointment Recommender (RAG)
 
 - **Endpoint**: `POST /ai/recommend` (patient only).
-- **Input**: free-text description + up to 3 recent visit assessments from the DB (past history requirement).
-- **Output contract**: model must reply with a single JSON object `{specialty, rationale, confidence}`; `extractJson()` tolerates code fences/prose. The specialty is validated against the catalogue — anything unexpected falls back to General Practice. The backend then attaches the top-2 doctors of that specialty from the DB, so doctor suggestions are always real bookable doctors, never hallucinated.
-- **Transparency**: `rationale` is displayed to the patient verbatim; patient can always override manually.
-- **Degradation**: 503 → the booking wizard skips straight to manual specialty selection.
+- **Input**: free-text description, plus RAG-retrieved context: the
+  patient's most semantically similar past visit assessments and the most
+  relevant specialty-routing knowledge chunks.
+- **Output contract**: forced `recommend_specialty` tool call — the provider
+  validates the shape, no text parsing. The specialty is still checked
+  against the catalogue defensively; the backend attaches the top-2 real
+  bookable doctors of that specialty from the DB, so doctor suggestions are
+  never hallucinated.
+- **Transparency**: `rationale` is displayed to the patient verbatim; patient
+  can always override manually.
+- **Degradation**: 503 → the booking wizard skips straight to manual
+  specialty selection.
 
-## Feature 3 — Clinical Note Assistant (SOAP formatter)
+## Feature 3 — Clinical Note Assistant (SOAP formatter, RAG)
 
 - **Endpoint**: `POST /ai/soap-format` (doctor only).
-- **Prompt principles**: use only information present in the notes; empty string for absent sections (anti-hallucination); max 3 ICD-10 suggestions ordered by likelihood; the model is framed as a "formatting aid, not a decision maker".
-- **Human-in-the-loop**: the response only pre-fills the four editable SOAP fields; the doctor reviews, edits, accepts/dismisses each ICD chip, and saving works entirely without the AI (manual path is independent).
+- **RAG context**: retrieves relevant documentation-guidance chunks (SOAP
+  section conventions, common ICD-10 codes per specialty) to ground the
+  formatting and code suggestions.
+- **Output contract**: forced `format_soap_note` tool call.
+- **Prompt principles**: use only information present in the notes; empty
+  string for absent sections (anti-hallucination); max 3 ICD-10 suggestions
+  ordered by likelihood; the model is framed as a "formatting aid, not a
+  decision maker".
+- **Human-in-the-loop**: the response only pre-fills the four editable SOAP
+  fields; the doctor reviews, edits, accepts/dismisses each ICD chip, and
+  saving works entirely without the AI (manual path is independent).
 - **Degradation**: 503 → non-blocking toast; manual editing continues.
 
 ## Feature 4 — No-Show Risk Predictor (bonus, no LLM)
 
 - **Endpoint**: `GET /ai/no-show-risk?date=` (receptionist/admin).
-- Rule-based scoring in `no-show.service.ts`: base 0.10, + up to 0.44 for past no-show rate, +0.08 for new patients, +0.07–0.15 for long booking lead time, +0.07 for edge-of-day slots, +0.05 for Mon/Fri, +0.05 for elective specialty; clamped at 0.95. Each contribution appends a human-readable factor string shown in the calendar tooltip.
-- Appointments with `score > 0.65` get the warning badge; the receptionist can fire the mock SMS reminder (`POST /notifications/reminder/:id`).
+- Rule-based scoring in `no-show.service.ts`: base 0.10, + up to 0.44 for past
+  no-show rate, +0.08 for new patients, +0.07–0.15 for long booking lead
+  time, +0.07 for edge-of-day slots, +0.05 for Mon/Fri, +0.05 for elective
+  specialty; clamped at 0.95. Each contribution appends a human-readable
+  factor string shown in the calendar tooltip.
+- Appointments with `score > 0.65` get the warning badge; the receptionist
+  can fire the mock SMS reminder (`POST /notifications/reminder/:id`).
 
 ## Suggested talking points for the report (write in your own words)
 
-1. Why marker-based extraction (`<SUMMARY>…`) is more robust than asking for
-   pure JSON for a *conversational* feature, while the two single-shot features
-   (recommend, SOAP) use JSON-only replies.
-2. Prompt iteration evidence you can reproduce: e.g. without "one question per
-   turn" the intake bot asks all five at once; without "use ONLY information
-   present" the SOAP formatter invents vitals.
-3. Privacy: patient identifiers are *not* sent to the LLM (only the description /
-   notes text); still, symptom text is PHI — discuss provider data-retention
-   policies, the .env key handling, and why the proxy layer is the enforcement
-   point.
+1. Why tool-use/function-calling is more robust than asking for free-text
+   JSON: the provider validates the shape against a schema, so there's no
+   parsing failure mode to handle.
+2. Why RAG changes the recommend/SOAP prompts qualitatively: the model is
+   grounded in retrieved facts (this patient's actual history, this clinic's
+   actual routing rules) instead of relying purely on parametric knowledge.
+3. The agentic design choice in the intake bot: giving the model a retrieval
+   *tool* rather than always injecting knowledge-base context up front — the
+   model decides when it's actually uncertain enough to look something up.
+4. Local embeddings tradeoff: zero cost and no external dependency, at the
+   cost of a ~5-10s cold load on first use and lower quality than a larger
+   hosted embedding model — reasonable for this scale of knowledge base.
+5. Privacy: patient identifiers are *not* sent to the LLM (only description/
+   notes text and retrieved context); still, symptom text is PHI — discuss
+   provider data-retention policies, the .env key handling, and why the
+   proxy layer is the enforcement point.

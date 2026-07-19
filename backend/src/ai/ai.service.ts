@@ -7,60 +7,56 @@ import { randomUUID } from 'crypto';
 import { Appointment, DoctorProfile, TriageSummary, VisitRecord, TriageData } from '../entities';
 import { AppointmentStatus, SPECIALTIES } from '../common/enums';
 import { JwtUser } from '../common/decorators';
-import { AiUnavailableException, ChatMessage, LlmClient, extractJson } from './llm.client';
+import { AgentMessage, AiUnavailableException, LlmClient, ToolCall } from './llm.client';
+import { KnowledgeService } from '../knowledge/knowledge.service';
+import { SessionStore } from './session-store';
 import {
-  INTAKE_OPENING_MESSAGE, INTAKE_SYSTEM_PROMPT,
-  RECOMMEND_SYSTEM_PROMPT, SOAP_SYSTEM_PROMPT, recommendUserPrompt,
+  INTAKE_OPENING_MESSAGE, INTAKE_SYSTEM_PROMPT, RECOMMEND_SYSTEM_PROMPT, RECOMMEND_TOOL,
+  RECORD_INTAKE_SUMMARY_TOOL, SEARCH_KNOWLEDGE_BASE_TOOL, SOAP_SYSTEM_PROMPT, SOAP_TOOL,
+  recommendUserPrompt, soapUserPrompt,
 } from './prompts';
 
 interface IntakeSession {
   patientId: string;
   appointmentId: string;
-  messages: ChatMessage[];
-  createdAt: number;
+  history: AgentMessage[];
 }
 
 const SESSION_TTL_MS = 60 * 60 * 1000;
+/** Caps the search_knowledge_base ↔ model round-trips per turn so a
+ *  confused model can't loop forever instead of replying to the patient. */
+const MAX_TOOL_HOPS = 3;
 
 @Injectable()
 export class AiService {
-  /**
-   * Intake conversation context is held in memory keyed by sessionId (the full
-   * message history is replayed to the LLM each turn). Sessions expire after 1h.
-   */
-  private sessions = new Map<string, IntakeSession>();
-
   constructor(
     private llm: LlmClient,
+    private knowledge: KnowledgeService,
+    private sessions: SessionStore<IntakeSession>,
     @InjectRepository(Appointment) private appointments: Repository<Appointment>,
     @InjectRepository(TriageSummary) private triage: Repository<TriageSummary>,
     @InjectRepository(VisitRecord) private records: Repository<VisitRecord>,
     @InjectRepository(DoctorProfile) private profiles: Repository<DoctorProfile>,
   ) {}
 
-  // ---------- AI Feature 2: Smart Appointment Recommender ----------
+  // ---------- AI Feature 2: Smart Appointment Recommender (RAG) ----------
 
   async recommend(user: JwtUser, description: string) {
-    const pastRecords = await this.records.find({
-      where: { patientId: user.id },
-      order: { createdAt: 'DESC' },
-      take: 3,
-    });
-    const history = pastRecords
-      .filter((r) => r.assessment)
-      .map((r) => r.assessment.slice(0, 200));
+    const [historyHits, knowledgeHits] = await Promise.all([
+      this.knowledge.searchPatientHistory(user.id, description, 3),
+      this.knowledge.searchKnowledge(description, 3, 'specialty-routing'),
+    ]);
 
-    const reply = await this.llm.chat(
+    const step = await this.llm.runAgentStep(
       RECOMMEND_SYSTEM_PROMPT,
-      [{ role: 'user', content: recommendUserPrompt(description, history) }],
-      512,
+      [{ role: 'user', content: recommendUserPrompt(description, historyHits, knowledgeHits) }],
+      [RECOMMEND_TOOL],
+      { maxTokens: 512, forceTool: RECOMMEND_TOOL.name },
     );
-    const parsed = extractJson<{
-      specialty: string; rationale: string; confidence: string;
-    }>(reply);
 
-    const specialty = SPECIALTIES.includes(parsed?.specialty as any)
-      ? parsed!.specialty
+    const input = step.toolCall?.input ?? {};
+    const specialty = (SPECIALTIES as readonly string[]).includes(input.specialty)
+      ? input.specialty
       : 'General Practice';
 
     const doctorProfiles = await this.profiles.find({
@@ -71,10 +67,8 @@ export class AiService {
 
     return {
       specialty,
-      rationale: parsed?.rationale ?? 'Based on your description, this specialty fits best.',
-      confidence: ['low', 'medium', 'high'].includes(parsed?.confidence ?? '')
-        ? parsed!.confidence
-        : 'medium',
+      rationale: input.rationale ?? 'Based on your description, this specialty fits best.',
+      confidence: ['low', 'medium', 'high'].includes(input.confidence) ? input.confidence : 'medium',
       doctors: doctorProfiles.map((p) => ({
         id: p.userId,
         fullName: p.user.fullName,
@@ -83,7 +77,7 @@ export class AiService {
     };
   }
 
-  // ---------- AI Feature 1: Patient Intake Chatbot ----------
+  // ---------- AI Feature 1: Patient Intake Chatbot (agentic) ----------
 
   private async upcomingAppointmentWithin24h(patientId: string): Promise<Appointment> {
     const now = new Date();
@@ -108,41 +102,147 @@ export class AiService {
       throw new AiUnavailableException();
     }
     const sessionId = randomUUID();
-    this.sessions.set(sessionId, {
-      patientId: user.id,
-      appointmentId: appt.id,
-      messages: [{ role: 'assistant', content: INTAKE_OPENING_MESSAGE }],
-      createdAt: Date.now(),
-    });
-    this.pruneSessions();
+    await this.sessions.set(
+      sessionId,
+      {
+        patientId: user.id,
+        appointmentId: appt.id,
+        history: [{ role: 'assistant', content: INTAKE_OPENING_MESSAGE }],
+      },
+      SESSION_TTL_MS,
+    );
     return { sessionId, message: INTAKE_OPENING_MESSAGE };
   }
 
   async intakeMessage(user: JwtUser, sessionId: string, message: string) {
-    const session = this.sessions.get(sessionId);
-    if (!session || Date.now() - session.createdAt > SESSION_TTL_MS) {
-      throw new NotFoundException('Intake session not found or expired');
+    const session = await this.getIntakeSession(sessionId, user.id);
+    session.history.push({ role: 'user', content: message });
+
+    const result = await this.runIntakeAgentLoop(session);
+    if (result.summary) {
+      await this.saveTriage(session.appointmentId, session.patientId, result.summary, 'ai');
+      await this.sessions.delete(sessionId);
+      return { message: result.text, completed: true, summary: result.summary };
     }
-    if (session.patientId !== user.id) throw new ForbiddenException();
+    await this.sessions.set(sessionId, session, SESSION_TTL_MS);
+    return { message: result.text, completed: false };
+  }
 
-    session.messages.push({ role: 'user', content: message });
-    const reply = await this.llm.chat(INTAKE_SYSTEM_PROMPT, session.messages, 1024);
-    session.messages.push({ role: 'assistant', content: reply });
+  /**
+   * Same agentic loop as intakeMessage(), but yields the assistant's reply as
+   * text deltas in real time (SSE) instead of waiting for the full response —
+   * only the final "done" event carries completion/summary status. A tool
+   * call (search_knowledge_base or record_intake_summary) always resolves
+   * only once its provider stream ends, so nothing tool-related is streamed
+   * to the client — just the conversational text.
+   */
+  async *intakeMessageStream(
+    user: JwtUser,
+    sessionId: string,
+    message: string,
+  ): AsyncGenerator<
+    { type: 'text'; delta: string } | { type: 'done'; completed: boolean; summary?: TriageData },
+    void,
+    unknown
+  > {
+    const session = await this.getIntakeSession(sessionId, user.id);
+    session.history.push({ role: 'user', content: message });
+    const tools = [SEARCH_KNOWLEDGE_BASE_TOOL, RECORD_INTAKE_SUMMARY_TOOL];
 
-    const summaryMatch = reply.match(/<SUMMARY>([\s\S]*?)<\/SUMMARY>/);
-    if (summaryMatch) {
-      const summary = extractJson<TriageData>(summaryMatch[1]);
-      if (summary) {
+    for (let hop = 0; hop < MAX_TOOL_HOPS; hop++) {
+      let text = '';
+      let toolCall: ToolCall | null = null;
+      for await (const event of this.llm.streamAgentStep(INTAKE_SYSTEM_PROMPT, session.history, tools, {
+        maxTokens: 1024,
+      })) {
+        if (event.type === 'text') {
+          yield { type: 'text', delta: event.delta };
+        } else {
+          text = event.result.text;
+          toolCall = event.result.toolCall;
+        }
+      }
+
+      if (!toolCall) {
+        session.history.push({ role: 'assistant', content: text });
+        await this.sessions.set(sessionId, session, SESSION_TTL_MS);
+        yield { type: 'done', completed: false };
+        return;
+      }
+
+      if (toolCall.name === 'record_intake_summary') {
+        session.history.push({ role: 'assistant', content: text, toolCall });
+        const summary = toolCall.input as TriageData;
         await this.saveTriage(session.appointmentId, session.patientId, summary, 'ai');
-        this.sessions.delete(sessionId);
+        await this.sessions.delete(sessionId);
+        yield { type: 'done', completed: true, summary };
+        return;
+      }
+
+      session.history.push({ role: 'assistant', content: text, toolCall });
+      session.history.push({
+        role: 'tool',
+        toolCallId: toolCall.id,
+        name: toolCall.name,
+        content: await this.executeSearchKnowledgeBase(toolCall),
+      });
+    }
+    yield { type: 'done', completed: false };
+  }
+
+  private async getIntakeSession(sessionId: string, patientId: string): Promise<IntakeSession> {
+    const session = await this.sessions.get(sessionId);
+    if (!session) throw new NotFoundException('Intake session not found or expired');
+    if (session.patientId !== patientId) throw new ForbiddenException();
+    return session;
+  }
+
+  /**
+   * Agentic loop: the model can call search_knowledge_base to check triage
+   * guidance before replying, and must call record_intake_summary once all
+   * five fields are collected — replacing the old <SUMMARY> marker regex.
+   */
+  private async runIntakeAgentLoop(
+    session: IntakeSession,
+  ): Promise<{ text: string; summary: TriageData | null }> {
+    const tools = [SEARCH_KNOWLEDGE_BASE_TOOL, RECORD_INTAKE_SUMMARY_TOOL];
+
+    for (let hop = 0; hop < MAX_TOOL_HOPS; hop++) {
+      const step = await this.llm.runAgentStep(INTAKE_SYSTEM_PROMPT, session.history, tools, {
+        maxTokens: 1024,
+      });
+
+      if (!step.toolCall) {
+        session.history.push({ role: 'assistant', content: step.text });
+        return { text: step.text, summary: null };
+      }
+
+      if (step.toolCall.name === 'record_intake_summary') {
+        session.history.push({ role: 'assistant', content: step.text, toolCall: step.toolCall });
         return {
-          message: reply.replace(/<SUMMARY>[\s\S]*?<\/SUMMARY>/, '').trim(),
-          completed: true,
-          summary,
+          text: step.text || 'Thank you — your intake is complete.',
+          summary: step.toolCall.input as TriageData,
         };
       }
+
+      // search_knowledge_base: execute server-side and feed the result back for another hop.
+      session.history.push({ role: 'assistant', content: step.text, toolCall: step.toolCall });
+      session.history.push({
+        role: 'tool',
+        toolCallId: step.toolCall.id,
+        name: step.toolCall.name,
+        content: await this.executeSearchKnowledgeBase(step.toolCall),
+      });
     }
-    return { message: reply, completed: false };
+    return { text: 'Sorry, could you rephrase that?', summary: null };
+  }
+
+  private async executeSearchKnowledgeBase(toolCall: ToolCall): Promise<string> {
+    const query = String(toolCall.input?.query ?? '');
+    const hits = await this.knowledge.searchKnowledge(query, 2, 'triage');
+    return hits.length
+      ? hits.map((h) => `${h.title}: ${h.content}`).join('\n')
+      : 'No matching guidance found.';
   }
 
   /** Static-form fallback when the AI service is unavailable. */
@@ -180,34 +280,26 @@ export class AiService {
     return { summary: row.summary, source: row.source, createdAt: row.createdAt };
   }
 
-  // ---------- AI Feature 3: Clinical Note Assistant (SOAP formatter) ----------
+  // ---------- AI Feature 3: Clinical Note Assistant (SOAP formatter, RAG) ----------
 
   async soapFormat(rawNotes: string) {
-    const reply = await this.llm.chat(
+    const knowledgeHits = await this.knowledge.searchKnowledge(rawNotes, 2, 'documentation');
+    const step = await this.llm.runAgentStep(
       SOAP_SYSTEM_PROMPT,
-      [{ role: 'user', content: `Doctor's raw notes:\n"""\n${rawNotes}\n"""` }],
-      1024,
+      [{ role: 'user', content: soapUserPrompt(rawNotes, knowledgeHits) }],
+      [SOAP_TOOL],
+      { maxTokens: 1024, forceTool: SOAP_TOOL.name },
     );
-    const parsed = extractJson<{
-      subjective: string; objective: string; assessment: string; plan: string;
-      icdSuggestions: Array<{ code: string; description: string }>;
-    }>(reply);
-    if (!parsed) {
+    const input = step.toolCall?.input;
+    if (!input) {
       throw new BadRequestException('AI returned an unparseable response — please try again');
     }
     return {
-      subjective: parsed.subjective ?? '',
-      objective: parsed.objective ?? '',
-      assessment: parsed.assessment ?? '',
-      plan: parsed.plan ?? '',
-      icdSuggestions: (parsed.icdSuggestions ?? []).slice(0, 3),
+      subjective: input.subjective ?? '',
+      objective: input.objective ?? '',
+      assessment: input.assessment ?? '',
+      plan: input.plan ?? '',
+      icdSuggestions: (input.icdSuggestions ?? []).slice(0, 3),
     };
-  }
-
-  private pruneSessions() {
-    const now = Date.now();
-    for (const [id, s] of this.sessions) {
-      if (now - s.createdAt > SESSION_TTL_MS) this.sessions.delete(id);
-    }
   }
 }

@@ -15,6 +15,11 @@ describe('AiController', () => {
     }),
     startIntake: jest.fn().mockResolvedValue({ sessionId: IDS.record, message: 'Hi' }),
     intakeMessage: jest.fn().mockResolvedValue({ message: 'ok', completed: false }),
+    intakeMessageStream: jest.fn(async function* (..._args: unknown[]) {
+      yield { type: 'text', delta: 'Hel' };
+      yield { type: 'text', delta: 'lo' };
+      yield { type: 'done', completed: false };
+    }),
     manualIntake: jest.fn().mockResolvedValue({ saved: true }),
     getTriage: jest.fn().mockResolvedValue({ summary: {}, createdAt: new Date() }),
     soapFormat: jest.fn().mockResolvedValue({
@@ -62,6 +67,20 @@ describe('AiController', () => {
     await request(app.getHttpServer())
       .post('/ai/intake/message').set(...auth(Role.PATIENT))
       .send({ sessionId: IDS.record, message: 'headache' }).expect(201);
+  });
+
+  it('POST /ai/intake/message/stream is patient-only and streams SSE text + done events', async () => {
+    await request(app.getHttpServer())
+      .post('/ai/intake/message/stream').set(...auth(Role.DOCTOR))
+      .send({ sessionId: IDS.record, message: 'hi' }).expect(403);
+
+    const res = await request(app.getHttpServer())
+      .post('/ai/intake/message/stream').set(...auth(Role.PATIENT))
+      .send({ sessionId: IDS.record, message: 'hi' }).expect(200);
+
+    expect(res.headers['content-type']).toContain('text/event-stream');
+    expect(res.text).toContain('data: {"type":"text","delta":"Hel"}');
+    expect(res.text).toContain('data: {"type":"done","completed":false}');
   });
 
   it('POST /ai/intake/manual stores the static-form fallback', async () => {

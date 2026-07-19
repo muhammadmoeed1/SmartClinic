@@ -1,9 +1,11 @@
 import {
-  Body, Controller, Get, Param, ParseUUIDPipe, Post, Query,
+  Body, Controller, Get, Param, ParseUUIDPipe, Post, Query, Res,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AiService } from './ai.service';
 import { NoShowService } from './no-show.service';
+import { AiUnavailableException } from './llm.client';
 import {
   IntakeMessageDto, ManualIntakeDto, RecommendDto, RiskQueryDto, SoapFormatDto,
 } from './dto';
@@ -38,6 +40,36 @@ export class AiController {
   @ApiOperation({ summary: 'AI Feature 1 — send a message in the intake conversation' })
   intakeMessage(@CurrentUser() user: JwtUser, @Body() dto: IntakeMessageDto) {
     return this.ai.intakeMessage(user, dto.sessionId, dto.message);
+  }
+
+  @Post('intake/message/stream')
+  @Roles(Role.PATIENT)
+  @ApiOperation({
+    summary: 'AI Feature 1 (streaming) — same as intake/message, but streamed as Server-Sent Events',
+  })
+  async intakeMessageStream(
+    @CurrentUser() user: JwtUser,
+    @Body() dto: IntakeMessageDto,
+    @Res() res: Response,
+  ) {
+    res.status(200);
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    try {
+      for await (const event of this.ai.intakeMessageStream(user, dto.sessionId, dto.message)) {
+        res.write(`data: ${JSON.stringify(event)}\n\n`);
+      }
+    } catch (err) {
+      const payload = err instanceof AiUnavailableException
+        ? { type: 'error', fallback: true }
+        : { type: 'error', fallback: false };
+      res.write(`data: ${JSON.stringify(payload)}\n\n`);
+    } finally {
+      res.end();
+    }
   }
 
   @Post('intake/manual')

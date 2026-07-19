@@ -174,10 +174,12 @@ docker-compose.yml   Orchestrates PostgreSQL + backend containers
 
 All AI calls are proxied through the backend — **no API keys are ever exposed to the frontend.**
 
-1. **Patient Intake Chatbot** — structured triage conversation, produces a JSON summary for the doctor; falls back gracefully to a static form if no AI key is configured
-2. **Smart Appointment Recommender** — free-text symptom description → suggested specialty + 2 recommended doctors + confidence score + rationale
-3. **Clinical Note Assistant** — raw consultation notes → structured SOAP fields + up to 3 ICD-10 code suggestions
-4. **No-Show Risk Predictor** — rule-based scoring, flags appointments with risk > 0.65 in the receptionist's calendar view
+1. **Patient Intake Chatbot** — an *agentic*, *streamed* conversation: the model streams its replies token-by-token over SSE, can call a `search_knowledge_base` tool mid-conversation to check triage guidance, and calls a `record_intake_summary` tool (structured output, not regex-parsed text) once all fields are collected. Falls back gracefully to a static form if no AI key is configured.
+2. **Smart Appointment Recommender** — free-text symptom description → suggested specialty + 2 recommended doctors + confidence score + rationale. Uses **RAG**: retrieves the patient's most relevant past visits and clinic routing guidance via pgvector similarity search before asking the model to recommend.
+3. **Clinical Note Assistant** — raw consultation notes → structured SOAP fields + up to 3 ICD-10 code suggestions, also RAG-augmented with retrieved documentation guidance.
+4. **No-Show Risk Predictor** — rule-based scoring, flags appointments with risk > 0.65 in the receptionist's calendar view.
+
+All structured AI outputs (recommend, SOAP, intake summary) use real **tool calls / function calling** validated against a JSON Schema by the provider — not free-text JSON parsed with regex. See [docs/AI_INTEGRATION.md](docs/AI_INTEGRATION.md) for the full architecture (RAG, embeddings, tool-use, streaming, session storage).
 
 > AI features are **optional**. The app runs fully without an `AI_API_KEY` — AI-powered screens will simply show their fallback/static behavior instead of live model output.
 

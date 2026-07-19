@@ -1,22 +1,28 @@
 import {
-  BadRequestException, ForbiddenException, Injectable, NotFoundException,
+  BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { DataSource, Repository } from 'typeorm';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Appointment, LabFile, PreAuth, VisitRecord } from '../entities';
 import { PreAuthStatus, Role } from '../common/enums';
 import { JwtUser } from '../common/decorators';
+import { EmbeddingService } from '../embedding/embedding.service';
+import { vectorToSql } from '../embedding/vector-sql';
 import { CreateRecordDto, UpdateRecordDto } from './dto';
 
 @Injectable()
 export class RecordsService {
+  private logger = new Logger('RecordsService');
+
   constructor(
     @InjectRepository(VisitRecord) private records: Repository<VisitRecord>,
     @InjectRepository(Appointment) private appointments: Repository<Appointment>,
     @InjectRepository(PreAuth) private preauths: Repository<PreAuth>,
     @InjectRepository(LabFile) private files: Repository<LabFile>,
+    private embeddings: EmbeddingService,
+    @InjectDataSource() private dataSource: DataSource,
   ) {}
 
   private toDto(r: VisitRecord) {
@@ -135,7 +141,31 @@ export class RecordsService {
     }
 
     await this.records.save(record);
+
+    if (dto.finalize) {
+      // Best-effort: powers "similar past visits" retrieval in the Smart
+      // Recommender (see KnowledgeService.searchPatientHistory). Never blocks
+      // or fails the save — embeddings degrade gracefully like the rest of
+      // the AI features.
+      await this.embedRecord(record);
+    }
+
     return this.getOne(user, id);
+  }
+
+  private async embedRecord(record: VisitRecord): Promise<void> {
+    const text = [record.subjective, record.assessment, record.plan].filter(Boolean).join('\n');
+    if (!text) return;
+    const vector = await this.embeddings.embed(text);
+    if (!vector) return;
+    try {
+      await this.dataSource.query(
+        `UPDATE visit_records SET embedding = $1::vector WHERE id = $2`,
+        [vectorToSql(vector), record.id],
+      );
+    } catch (err) {
+      this.logger.warn(`Failed to store visit record embedding: ${(err as Error).message}`);
+    }
   }
 
   async attachFile(user: JwtUser, id: string, file: Express.Multer.File) {

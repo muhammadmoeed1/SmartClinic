@@ -27,6 +27,7 @@ export default function IntakeChat({ appointmentId, onClose }: IntakeChatProps) 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [streaming, setStreaming] = useState(false);
   const [summary, setSummary] = useState<TriageSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -67,13 +68,38 @@ export default function IntakeChat({ appointmentId, onClose }: IntakeChatProps) 
     setError(null);
     setMessages((m) => [...m, { role: 'user', text }]);
     setSending(true);
+    setStreaming(false);
+
+    let streamed = '';
+    let bubbleStarted = false;
     try {
-      const res = await aiApi.intakeMessage(sessionId, text);
-      setMessages((m) => [...m, { role: 'assistant', text: res.message }]);
-      if (res.completed) {
-        setSummary(res.summary ?? null);
-        setMode('done');
-      }
+      await aiApi.intakeMessageStream(sessionId, text, (event) => {
+        if (event.type === 'text') {
+          streamed += event.delta;
+          setMessages((m) => {
+            if (!bubbleStarted) {
+              bubbleStarted = true;
+              setStreaming(true);
+              return [...m, { role: 'assistant', text: streamed }];
+            }
+            const next = [...m];
+            next[next.length - 1] = { role: 'assistant', text: streamed };
+            return next;
+          });
+        } else if (event.type === 'done') {
+          if (event.completed) {
+            setSummary(event.summary ?? null);
+            setMode('done');
+          }
+        } else if (event.type === 'error') {
+          if (event.fallback) {
+            toast('The assistant is unavailable — switching to the standard form.', 'info');
+            setMode('fallback');
+          } else {
+            setError('Something went wrong — please try again.');
+          }
+        }
+      });
     } catch (err) {
       if (isAiFallback(err)) {
         toast('The assistant is unavailable — switching to the standard form.', 'info');
@@ -83,6 +109,7 @@ export default function IntakeChat({ appointmentId, onClose }: IntakeChatProps) 
       }
     } finally {
       setSending(false);
+      setStreaming(false);
     }
   };
 
@@ -110,7 +137,7 @@ export default function IntakeChat({ appointmentId, onClose }: IntakeChatProps) 
                 {m.text}
               </div>
             ))}
-            {sending && (
+            {sending && !streaming && (
               <div className="chat__bubble chat__bubble--assistant chat__bubble--typing">
                 <span className="typing-dots" aria-label="Assistant is typing">
                   <span />

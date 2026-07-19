@@ -77,11 +77,16 @@ at the Neon database:
 cd backend
 # Windows PowerShell:
 $env:DATABASE_URL="<your Neon connection string>"; npm run seed
+$env:DATABASE_URL="<your Neon connection string>"; npm run seed:knowledge
 # macOS/Linux:
 DATABASE_URL="<your Neon connection string>" npm run seed
+DATABASE_URL="<your Neon connection string>" npm run seed:knowledge
 ```
 
-This creates the demo accounts, doctors, rooms, and historical appointments.
+`seed` creates the demo accounts, doctors, rooms, and historical appointments.
+`seed:knowledge` embeds and loads the RAG knowledge base used by the Smart
+Recommender and SOAP assistant (first run downloads a small embedding model,
+~25MB, cached after).
 
 ---
 
@@ -94,6 +99,19 @@ This creates the demo accounts, doctors, rooms, and historical appointments.
    and variables → Actions → Variables**, add a variable **`BACKEND_URL`** set to
    your Render URL. The included keep-alive workflow then pings `/health` every
    14 minutes so the free backend never cold-starts for visitors.
+
+---
+
+## Step 6 — Optional: Redis for intake chat sessions (Upstash, free)
+
+The intake chatbot's conversation state is held in a session store that falls
+back to in-process memory if no Redis is configured — fine for a demo on a
+single Render instance, but it's lost on every restart/redeploy. To make it
+durable:
+
+1. Sign up at **https://upstash.com** (free tier) → create a Redis database.
+2. Copy its connection string (starts with `rediss://`).
+3. In **Render → smartclinic-api → Environment**, set **`REDIS_URL`** to that value.
 
 ---
 
