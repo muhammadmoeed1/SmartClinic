@@ -34,6 +34,55 @@ guards on `/ai/*` plus the key living only in backend env — including for the
 streaming endpoint, which still goes through the same guards before the
 handler ever touches the response.
 
+### The agentic intake loop, visually
+
+The intake chatbot is the most involved flow: the model can retrieve
+guidance on its own initiative (agentic), streams its reply as it's
+generated, and must call a tool to finalize — no regex parsing anywhere.
+
+```mermaid
+sequenceDiagram
+    participant P as Patient (browser)
+    participant API as AiController (SSE)
+    participant Svc as AiService
+    participant LLM as LLM provider
+    participant KB as KnowledgeService (pgvector)
+
+    P->>API: POST /ai/intake/message/stream
+    API->>Svc: intakeMessageStream(sessionId, message)
+    Svc->>Svc: redactPii(message)
+    loop up to 3 tool-hops
+        Svc->>LLM: streamAgentStep(history, tools)
+        LLM-->>API: text deltas (streamed live)
+        API-->>P: SSE "text" events
+        alt model calls search_knowledge_base
+            LLM->>Svc: tool_call: search_knowledge_base(query)
+            Svc->>KB: searchKnowledge(query, category: triage)
+            KB-->>Svc: matching guidance (or cache hit)
+            Svc->>LLM: tool result appended to history
+        else model calls record_intake_summary
+            LLM->>Svc: tool_call: record_intake_summary(structured data)
+            Svc->>Svc: save TriageSummary, delete session
+            Svc-->>API: done(completed: true, summary)
+            API-->>P: SSE "done" event
+        end
+    end
+```
+
+### RAG retrieval, visually
+
+```mermaid
+flowchart LR
+    Q["Patient description<br/>or doctor's raw notes"] --> R{redactPii}
+    R --> E["EmbeddingService<br/>(local MiniLM, @xenova/transformers)"]
+    E --> V["pgvector cosine search<br/>(knowledge_chunks + visit_records)"]
+    V --> C{"SessionStore cache<br/>hit?"}
+    C -->|hit| CTX[Retrieved context]
+    C -->|miss, then stored| CTX
+    CTX --> PROMPT["Prompt + forced tool call<br/>(recommend_specialty / format_soap_note)"]
+    PROMPT --> OUT["Structured, schema-validated output"]
+```
+
 ## Retrieval-Augmented Generation (RAG)
 
 Two pgvector-backed sources, both searched by cosine distance (`<=>`), not

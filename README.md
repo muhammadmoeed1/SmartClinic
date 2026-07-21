@@ -1,8 +1,15 @@
 # SmartClinic — AI-Augmented Outpatient Management Platform
 
 [![CI](https://github.com/muhammadmoeed1/SmartClinic/actions/workflows/ci.yml/badge.svg)](https://github.com/muhammadmoeed1/SmartClinic/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.6-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![NestJS](https://img.shields.io/badge/NestJS-10-E0234E?logo=nestjs&logoColor=white)](https://nestjs.com/)
+[![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=white)](https://react.dev/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15%20%2B%20pgvector-4169E1?logo=postgresql&logoColor=white)](https://github.com/pgvector/pgvector)
 
-Full-stack project featuring a **React 18 + TypeScript** frontend, **NestJS** backend, **PostgreSQL 15 (pgvector)** database, **Socket.io** real-time notifications, **JWT authentication**, and an **AI proxy layer** (Anthropic Claude / OpenAI compatible).
+A full-stack outpatient clinic platform for four roles (patient, doctor, receptionist, admin) with four AI features built as a real AI *system*, not a thin API wrapper: **retrieval-augmented generation** over a clinic knowledge base and patient history, **tool-use/function-calling** for structured output, an **agentic** intake chatbot, **token-streamed** responses, per-call **observability** (latency/cost/tokens), an **LLM-as-judge eval harness**, and **guardrails** (PII redaction, hallucination checks) — all gracefully degrading to manual fallbacks when no AI key is configured.
+
+Stack: **React 18 + TypeScript** frontend, **NestJS** backend, **PostgreSQL 15 + pgvector**, **Redis**, **Socket.io**, **JWT auth**, and a provider-agnostic **AI proxy** (Anthropic Claude / any OpenAI-compatible endpoint, e.g. Groq's free tier).
 
 The entire application (database + backend) runs in **Docker**, so no manual database installation or configuration is required.
 
@@ -10,8 +17,51 @@ The entire application (database + backend) runs in **Docker**, so no manual dat
 
 ---
 
+## Architecture
+
+```mermaid
+flowchart TB
+    subgraph Client
+        FE["React 18 SPA<br/>(Vite, Zustand, Socket.io-client)"]
+    end
+
+    subgraph Backend["NestJS API"]
+        API["REST + WebSocket + SSE<br/>role-guarded controllers"]
+        AI["AI proxy module<br/>(RAG, tool-use, agentic loop,<br/>observability, guardrails)"]
+        CORE["Core modules<br/>(auth, appointments, records,<br/>notifications, pre-auth, analytics)"]
+    end
+
+    subgraph Data
+        PG[("PostgreSQL 15<br/>+ pgvector")]
+        REDIS[("Redis<br/>(sessions + RAG cache)")]
+    end
+
+    LLM["LLM API<br/>(Anthropic / OpenAI-compatible)"]
+    EMB["Local embeddings<br/>(@xenova/transformers, in-process)"]
+
+    FE <-->|REST / SSE| API
+    FE <-->|WebSocket| API
+    API --> CORE
+    API --> AI
+    CORE --> PG
+    AI --> PG
+    AI --> REDIS
+    AI --> EMB
+    AI -->|API key server-side only| LLM
+
+    style FE fill:#61DAFB,color:#000
+    style LLM fill:#f5a742,color:#000
+    style PG fill:#4169E1,color:#fff
+    style REDIS fill:#DC382D,color:#fff
+```
+
+No LLM API key is ever sent to the frontend — every AI call is proxied through the backend, role-guarded like any other endpoint. See [docs/AI_INTEGRATION.md](docs/AI_INTEGRATION.md) for the AI subsystem's internal architecture (RAG, tool-use, the agentic loop, observability, caching, and the eval harness).
+
+---
+
 ## Table of Contents
 
+- [Architecture](#architecture)
 - [Prerequisites](#prerequisites)
 - [Quick Start (Recommended)](#quick-start-recommended)
 - [Demo Accounts](#demo-accounts)
@@ -157,6 +207,12 @@ frontend/   React 18 + Vite + TypeScript SPA
 docs/       API contract, ER diagram, AI integration notes
 docker-compose.yml   Orchestrates PostgreSQL + backend containers
 ```
+
+**Further reading:**
+- [docs/AI_INTEGRATION.md](docs/AI_INTEGRATION.md) — the AI subsystem's architecture: RAG, tool-use, the agentic loop, observability, caching, the eval harness (with sequence diagrams).
+- [docs/BLOG_POST.md](docs/BLOG_POST.md) — a technical write-up on the design decisions and trade-offs behind it.
+- [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) — shot list for a short walkthrough video.
+- [DEPLOYMENT.md](DEPLOYMENT.md) — free-tier deploy guide (Neon + Render + Vercel).
 
 ---
 
