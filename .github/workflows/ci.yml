@@ -77,3 +77,80 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  e2e:
+    name: E2E (Playwright)
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    services:
+      postgres:
+        image: pgvector/pgvector:pg15
+        env:
+          POSTGRES_USER: smartclinic
+          POSTGRES_PASSWORD: smartclinic
+          POSTGRES_DB: smartclinic
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U smartclinic"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      DB_HOST: localhost
+      DB_PORT: 5432
+      DB_USER: smartclinic
+      DB_PASSWORD: smartclinic
+      DB_NAME: smartclinic
+      REDIS_URL: redis://localhost:6379
+      JWT_ACCESS_SECRET: e2e-test-access-secret
+      JWT_REFRESH_SECRET: e2e-test-refresh-secret
+      JWT_ACCESS_TTL: 900s
+      JWT_REFRESH_TTL: 7d
+      CORS_ORIGIN: http://localhost:5173
+      PORT: 3000
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Build backend
+        working-directory: backend
+        run: npm run build
+
+      - name: Run migrations
+        working-directory: backend
+        run: npm run migration:run
+
+      - name: Seed demo data
+        working-directory: backend
+        run: npm run seed
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Run E2E tests
+        working-directory: frontend
+        run: npx playwright test
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend/playwright-report
+          retention-days: 7

@@ -50,3 +50,6 @@ services:
       # Comma-separated allowed origins — set to your Vercel frontend URL.
       - key: CORS_ORIGIN
         sync: false
+      # Optional: Sentry error tracking. Leave unset to disable (no-op).
+      - key: SENTRY_DSN
+        sync: false

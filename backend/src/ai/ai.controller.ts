@@ -2,6 +2,7 @@ import {
   Body, Controller, Get, Param, ParseUUIDPipe, Post, Query, Res,
 } from '@nestjs/common';
 import type { Response } from 'express';
+import { Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AiService } from './ai.service';
 import { NoShowService } from './no-show.service';
@@ -28,6 +29,7 @@ export class AiController {
 
   @Post('recommend')
   @Roles(Role.PATIENT)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @ApiOperation({ summary: 'AI Feature 2 — specialty recommendation from free text' })
   recommend(@CurrentUser() user: JwtUser, @Body() dto: RecommendDto) {
     return this.ai.recommend(user, dto.description);
@@ -42,6 +44,7 @@ export class AiController {
 
   @Post('intake/message')
   @Roles(Role.PATIENT)
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @ApiOperation({ summary: 'AI Feature 1 — send a message in the intake conversation' })
   intakeMessage(@CurrentUser() user: JwtUser, @Body() dto: IntakeMessageDto) {
     return this.ai.intakeMessage(user, dto.sessionId, dto.message);
@@ -49,6 +52,7 @@ export class AiController {
 
   @Post('intake/message/stream')
   @Roles(Role.PATIENT)
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @ApiOperation({
     summary: 'AI Feature 1 (streaming) — same as intake/message, but streamed as Server-Sent Events',
   })
@@ -97,6 +101,7 @@ export class AiController {
 
   @Post('soap-format')
   @Roles(Role.DOCTOR)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @ApiOperation({ summary: 'AI Feature 3 — format raw notes into SOAP + ICD-10 suggestions' })
   soapFormat(@Body() dto: SoapFormatDto) {
     return this.ai.soapFormat(dto.rawNotes);

@@ -18,6 +18,7 @@ The entire application (database + backend) runs in **Docker**, so no manual dat
 - [Repository Layout](#repository-layout)
 - [Core Modules](#core-modules)
 - [AI Features](#ai-features)
+- [Production Hardening](#production-hardening)
 - [Environment Variables](#environment-variables)
 - [Alternative: Manual Backend Setup (without Docker)](#alternative-manual-backend-setup-without-docker)
 - [Testing](#testing)
@@ -185,6 +186,16 @@ All structured AI outputs (recommend, SOAP, intake summary) use real **tool call
 
 ---
 
+## Production Hardening
+
+- **Rate limiting** (`@nestjs/throttler`) — 100 req/min default per IP; AI endpoints are tighter (10-20/min) since they're the costly ones to abuse.
+- **Structured logging** (`nestjs-pino`) — JSON logs in production (pretty-printed in dev) with a request ID on every line for tracing a request across log statements.
+- **Metrics** — `GET /metrics` (unauthenticated, Prometheus text format): default Node process metrics plus `http_request_duration_seconds` / `http_requests_total`, labeled by method/route/status.
+- **Error tracking** — optional Sentry integration (`SENTRY_DSN`); a request-observing interceptor reports unexpected (5xx) errors without altering any response, and no-ops entirely when unset.
+- **E2E tests** (Playwright, `frontend/e2e/`) — one login+dashboard smoke test per role plus a full patient booking flow, run in CI against real Postgres + Redis service containers.
+
+---
+
 ## Environment Variables
 
 All configuration lives in environment variables — nothing is hardcoded.
@@ -233,6 +244,10 @@ npm test          # unit + controller integration tests (Jest + Supertest)
 npm run test:cov  # coverage report
 npm run eval       # LLM eval harness (recommend accuracy + LLM-as-judge rationale score + SOAP validity)
                     # requires AI_API_KEY — skips gracefully (exit 0) if unset, safe to run in CI
+
+cd ../frontend
+npm run test:e2e  # Playwright E2E — one login smoke test per role + a full booking flow.
+                   # Manages both servers itself; expects the DB already migrated + seeded.
 ```
 
 ---
