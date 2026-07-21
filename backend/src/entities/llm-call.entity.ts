@@ -16,19 +16,19 @@ export class LlmCall {
   @Column()
   model: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   promptVersion: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   toolName: string | null;
 
   @Column()
   latencyMs: number;
 
-  @Column({ nullable: true })
+  @Column({ type: 'integer', nullable: true })
   inputTokens: number | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'integer', nullable: true })
   outputTokens: number | null;
 
   @Column()
