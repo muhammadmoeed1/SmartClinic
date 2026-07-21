@@ -1,4 +1,5 @@
 import { AiUnavailableException, AgentMessage, LlmClient, ToolSchema } from '../src/ai/llm.client';
+import { LlmObservabilityService } from '../src/ai/llm-observability.service';
 
 const TOOL: ToolSchema = {
   name: 'pick_one',
@@ -31,12 +32,14 @@ function sseResponse(payloads: string[]): Response {
 
 describe('LlmClient', () => {
   const originalEnv = { ...process.env };
+  const observability = { record: jest.fn().mockResolvedValue(undefined) } as unknown as LlmObservabilityService;
   let client: LlmClient;
 
   beforeEach(() => {
     process.env.AI_API_KEY = 'test-key';
-    client = new LlmClient();
+    client = new LlmClient(observability);
     global.fetch = jest.fn();
+    jest.clearAllMocks();
   });
 
   afterEach(() => {
@@ -46,10 +49,10 @@ describe('LlmClient', () => {
 
   it('throws AiUnavailableException when no API key is configured', async () => {
     delete process.env.AI_API_KEY;
-    client = new LlmClient();
-    await expect(client.runAgentStep('sys', [{ role: 'user', content: 'hi' }])).rejects.toThrow(
-      AiUnavailableException,
-    );
+    client = new LlmClient(observability);
+    await expect(
+      client.runAgentStep('sys', [{ role: 'user', content: 'hi' }], [], { feature: 'test' }),
+    ).rejects.toThrow(AiUnavailableException);
   });
 
   describe('anthropic provider', () => {
@@ -58,34 +61,53 @@ describe('LlmClient', () => {
       process.env.AI_MODEL = 'claude-sonnet-5';
     });
 
-    it('sends tool_choice and parses a tool_use response', async () => {
+    it('sends tool_choice and parses a tool_use response, logging the call', async () => {
       (global.fetch as jest.Mock).mockResolvedValue(
         jsonResponse({
           content: [
             { type: 'text', text: 'Sure, here you go.' },
             { type: 'tool_use', id: 'tu_1', name: 'pick_one', input: { value: 'x' } },
           ],
+          usage: { input_tokens: 12, output_tokens: 5 },
         }),
       );
 
       const history: AgentMessage[] = [{ role: 'user', content: 'pick something' }];
-      const result = await client.runAgentStep('sys', history, [TOOL], { forceTool: 'pick_one' });
+      const result = await client.runAgentStep('sys', history, [TOOL], {
+        forceTool: 'pick_one',
+        feature: 'test',
+        promptVersion: 'v1',
+      });
 
       expect(result.toolCall).toEqual({ id: 'tu_1', name: 'pick_one', input: { value: 'x' } });
       expect(result.text).toBe('Sure, here you go.');
+      expect(result.usage).toEqual({ inputTokens: 12, outputTokens: 5 });
 
       const [, init] = (global.fetch as jest.Mock).mock.calls[0];
       const body = JSON.parse(init.body);
       expect(body.tool_choice).toEqual({ type: 'tool', name: 'pick_one' });
       expect(body.tools[0]).toMatchObject({ name: 'pick_one', input_schema: TOOL.parameters });
+
+      expect(observability.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          feature: 'test',
+          promptVersion: 'v1',
+          toolName: 'pick_one',
+          success: true,
+          inputTokens: 12,
+          outputTokens: 5,
+        }),
+      );
     });
 
     it('returns plain text with no tool call when the model does not call one', async () => {
       (global.fetch as jest.Mock).mockResolvedValue(
         jsonResponse({ content: [{ type: 'text', text: 'Just chatting.' }] }),
       );
-      const result = await client.runAgentStep('sys', [{ role: 'user', content: 'hi' }]);
-      expect(result).toEqual({ text: 'Just chatting.', toolCall: null });
+      const result = await client.runAgentStep('sys', [{ role: 'user', content: 'hi' }], [], {
+        feature: 'test',
+      });
+      expect(result).toEqual({ text: 'Just chatting.', toolCall: null, usage: null });
     });
 
     it('maps assistant tool-call turns and tool-result turns into Anthropic content blocks', async () => {
@@ -97,23 +119,27 @@ describe('LlmClient', () => {
         { role: 'assistant', content: '', toolCall: { id: 'tu_1', name: 'search', input: { q: 'x' } } },
         { role: 'tool', toolCallId: 'tu_1', name: 'search', content: 'result text' },
       ];
-      await client.runAgentStep('sys', history, [TOOL]);
+      await client.runAgentStep('sys', history, [TOOL], { feature: 'test' });
       const [, init] = (global.fetch as jest.Mock).mock.calls[0];
       const body = JSON.parse(init.body);
       expect(body.messages[1].content[0]).toMatchObject({ type: 'tool_use', id: 'tu_1' });
       expect(body.messages[2].content[0]).toMatchObject({ type: 'tool_result', tool_use_id: 'tu_1' });
     });
 
-    it('rejects with AiUnavailableException when the API call fails', async () => {
+    it('rejects with AiUnavailableException and logs the failure when the API call fails', async () => {
       (global.fetch as jest.Mock).mockResolvedValue(jsonResponse({}, false));
       await expect(
-        client.runAgentStep('sys', [{ role: 'user', content: 'hi' }]),
+        client.runAgentStep('sys', [{ role: 'user', content: 'hi' }], [], { feature: 'test' }),
       ).rejects.toThrow(AiUnavailableException);
+      expect(observability.record).toHaveBeenCalledWith(
+        expect.objectContaining({ feature: 'test', success: false }),
+      );
     });
 
     it('streamAgentStep yields text deltas then a done event with the accumulated tool call', async () => {
       (global.fetch as jest.Mock).mockResolvedValue(
         sseResponse([
+          JSON.stringify({ type: 'message_start', message: { usage: { input_tokens: 20 } } }),
           JSON.stringify({ type: 'content_block_start', content_block: { type: 'text' } }),
           JSON.stringify({ type: 'content_block_delta', delta: { type: 'text_delta', text: 'Hel' } }),
           JSON.stringify({ type: 'content_block_delta', delta: { type: 'text_delta', text: 'lo' } }),
@@ -125,12 +151,15 @@ describe('LlmClient', () => {
           JSON.stringify({ type: 'content_block_delta', delta: { type: 'input_json_delta', partial_json: '{"value"' } }),
           JSON.stringify({ type: 'content_block_delta', delta: { type: 'input_json_delta', partial_json: ':"x"}' } }),
           JSON.stringify({ type: 'content_block_stop' }),
+          JSON.stringify({ type: 'message_delta', usage: { output_tokens: 7 } }),
           JSON.stringify({ type: 'message_stop' }),
         ]),
       );
 
       const events: any[] = [];
-      for await (const event of client.streamAgentStep('sys', [{ role: 'user', content: 'hi' }], [TOOL])) {
+      for await (const event of client.streamAgentStep('sys', [{ role: 'user', content: 'hi' }], [TOOL], {
+        feature: 'test',
+      })) {
         events.push(event);
       }
       const textEvents = events.filter((e) => e.type === 'text');
@@ -138,8 +167,15 @@ describe('LlmClient', () => {
       expect(textEvents.map((e) => e.delta).join('')).toBe('Hello');
       expect(done).toEqual({
         type: 'done',
-        result: { text: 'Hello', toolCall: { id: 'tu_2', name: 'pick_one', input: { value: 'x' } } },
+        result: {
+          text: 'Hello',
+          toolCall: { id: 'tu_2', name: 'pick_one', input: { value: 'x' } },
+          usage: { inputTokens: 20, outputTokens: 7 },
+        },
       });
+      expect(observability.record).toHaveBeenCalledWith(
+        expect.objectContaining({ feature: 'test', inputTokens: 20, outputTokens: 7 }),
+      );
     });
   });
 
@@ -163,6 +199,7 @@ describe('LlmClient', () => {
               },
             },
           ],
+          usage: { prompt_tokens: 15, completion_tokens: 4 },
         }),
       );
 
@@ -170,9 +207,10 @@ describe('LlmClient', () => {
         'sys',
         [{ role: 'user', content: 'pick' }],
         [TOOL],
-        { forceTool: 'pick_one' },
+        { forceTool: 'pick_one', feature: 'test' },
       );
       expect(result.toolCall).toEqual({ id: 'call_1', name: 'pick_one', input: { value: 'x' } });
+      expect(result.usage).toEqual({ inputTokens: 15, outputTokens: 4 });
 
       const [url, init] = (global.fetch as jest.Mock).mock.calls[0];
       expect(url).toBe('https://api.groq.com/openai/v1/chat/completions');
@@ -180,7 +218,7 @@ describe('LlmClient', () => {
       expect(body.tool_choice).toEqual({ type: 'function', function: { name: 'pick_one' } });
     });
 
-    it('streamAgentStep accumulates streamed tool_calls deltas', async () => {
+    it('streamAgentStep accumulates streamed tool_calls deltas and final usage', async () => {
       (global.fetch as jest.Mock).mockResolvedValue(
         sseResponse([
           JSON.stringify({ choices: [{ delta: { content: 'Hi ' } }] }),
@@ -193,18 +231,25 @@ describe('LlmClient', () => {
           JSON.stringify({
             choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '"y"}' } }] } }],
           }),
+          JSON.stringify({ choices: [], usage: { prompt_tokens: 9, completion_tokens: 3 } }),
           '[DONE]',
         ]),
       );
 
       const events: any[] = [];
-      for await (const event of client.streamAgentStep('sys', [{ role: 'user', content: 'hi' }], [TOOL])) {
+      for await (const event of client.streamAgentStep('sys', [{ role: 'user', content: 'hi' }], [TOOL], {
+        feature: 'test',
+      })) {
         events.push(event);
       }
       const done = events[events.length - 1];
       expect(done).toEqual({
         type: 'done',
-        result: { text: 'Hi ', toolCall: { id: 'call_9', name: 'pick_one', input: { value: 'y' } } },
+        result: {
+          text: 'Hi ',
+          toolCall: { id: 'call_9', name: 'pick_one', input: { value: 'y' } },
+          usage: { inputTokens: 9, outputTokens: 3 },
+        },
       });
     });
   });

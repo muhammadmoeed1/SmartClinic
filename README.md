@@ -231,6 +231,8 @@ npm run dev                  # http://localhost:5173
 cd backend
 npm test          # unit + controller integration tests (Jest + Supertest)
 npm run test:cov  # coverage report
+npm run eval       # LLM eval harness (recommend accuracy + LLM-as-judge rationale score + SOAP validity)
+                    # requires AI_API_KEY — skips gracefully (exit 0) if unset, safe to run in CI
 ```
 
 ---

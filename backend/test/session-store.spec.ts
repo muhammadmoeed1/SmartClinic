@@ -11,7 +11,7 @@ jest.mock('ioredis', () => jest.fn().mockImplementation(() => {
   return instance;
 }));
 
-import { SessionStore } from '../src/ai/session-store';
+import { SessionStore } from '../src/common/session-store';
 
 describe('SessionStore', () => {
   const originalRedisUrl = process.env.REDIS_URL;

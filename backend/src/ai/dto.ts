@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import {
-  IsArray, IsInt, IsNotEmpty, IsString, IsUUID, Matches, Max, Min,
+  IsArray, IsInt, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, Max, Min,
 } from 'class-validator';
 
 export class RecommendDto {
@@ -67,4 +67,11 @@ export class RiskQueryDto {
   @ApiProperty({ example: '2026-07-15' })
   @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'date must be YYYY-MM-DD' })
   date: string;
+}
+
+export class ObservabilityQueryDto {
+  @ApiProperty({ required: false, example: '24', description: 'Only include calls from the last N hours' })
+  @IsOptional()
+  @Matches(/^\d+$/, { message: 'sinceHours must be a positive integer' })
+  sinceHours?: string;
 }

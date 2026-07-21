@@ -5,9 +5,12 @@ import type { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AiService } from './ai.service';
 import { NoShowService } from './no-show.service';
+import { LlmObservabilityService } from './llm-observability.service';
+import { KnowledgeService } from '../knowledge/knowledge.service';
 import { AiUnavailableException } from './llm.client';
 import {
-  IntakeMessageDto, ManualIntakeDto, RecommendDto, RiskQueryDto, SoapFormatDto,
+  IntakeMessageDto, ManualIntakeDto, ObservabilityQueryDto, RecommendDto, RiskQueryDto,
+  SoapFormatDto,
 } from './dto';
 import { CurrentUser, JwtUser, Roles } from '../common/decorators';
 import { Role } from '../common/enums';
@@ -19,6 +22,8 @@ export class AiController {
   constructor(
     private ai: AiService,
     private noShow: NoShowService,
+    private llmObservability: LlmObservabilityService,
+    private knowledge: KnowledgeService,
   ) {}
 
   @Post('recommend')
@@ -102,5 +107,18 @@ export class AiController {
   @ApiOperation({ summary: 'AI Feature 4 — no-show risk scores for a date (flag > 0.65)' })
   noShowRisk(@Query() query: RiskQueryDto) {
     return this.noShow.scoresForDate(query.date);
+  }
+
+  @Get('observability')
+  @Roles(Role.ADMIN)
+  @ApiOperation({ summary: 'LLM observability — calls, latency, token usage, success rate by feature' })
+  async observability(@Query() query: ObservabilityQueryDto) {
+    const since = query.sinceHours
+      ? new Date(Date.now() - Number(query.sinceHours) * 3600000)
+      : undefined;
+    return {
+      llmCalls: await this.llmObservability.statsByFeature(since),
+      ragCache: this.knowledge.cacheStats,
+    };
   }
 }

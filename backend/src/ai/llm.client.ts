@@ -1,4 +1,5 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { LlmObservabilityService } from './llm-observability.service';
 
 export class AiUnavailableException extends ServiceUnavailableException {
   constructor() {
@@ -19,6 +20,11 @@ export interface ToolCall {
   input: any;
 }
 
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+}
+
 /** One turn of an agentic conversation: a plain message, or an assistant
  *  turn that invoked a tool, or the result of executing that tool. */
 export type AgentMessage =
@@ -29,6 +35,7 @@ export type AgentMessage =
 export interface AgentStepResult {
   text: string;
   toolCall: ToolCall | null;
+  usage: TokenUsage | null;
 }
 
 /** Emitted while streaming: incremental text as it's generated, then one
@@ -38,10 +45,21 @@ export type AgentStreamEvent =
   | { type: 'text'; delta: string }
   | { type: 'done'; result: AgentStepResult };
 
+export interface AgentStepOpts {
+  maxTokens?: number;
+  forceTool?: string;
+  /** Which feature is calling (e.g. 'recommend', 'soap_format', 'intake') — logged for observability. */
+  feature: string;
+  /** Prompt/tool-schema version in use, for the prompt-versioning registry. */
+  promptVersion?: string;
+}
+
 /**
  * Provider-agnostic LLM client (Anthropic Messages API or OpenAI-compatible
  * chat completions), selected via AI_PROVIDER. The API key never leaves this
- * backend module.
+ * backend module. Every call — success or failure — is logged via
+ * LlmObservabilityService (latency, token usage, provider/model, prompt
+ * version) for the admin observability endpoint and eval reports.
  *
  * Two calling styles, both supporting tools (structured output via JSON
  * Schema, validated by the provider, instead of asking the model to emit
@@ -58,6 +76,8 @@ export type AgentStreamEvent =
 export class LlmClient {
   private logger = new Logger('LLM');
 
+  constructor(private observability: LlmObservabilityService) {}
+
   get available(): boolean {
     return !!process.env.AI_API_KEY;
   }
@@ -68,19 +88,45 @@ export class LlmClient {
       : 'anthropic';
   }
 
+  private get modelName(): string {
+    return process.env.AI_MODEL || (this.provider === 'openai' ? 'gpt-4o' : 'claude-sonnet-5');
+  }
+
   async runAgentStep(
     system: string,
     history: AgentMessage[],
     tools: ToolSchema[] = [],
-    opts: { maxTokens?: number; forceTool?: string } = {},
+    opts: AgentStepOpts,
   ): Promise<AgentStepResult> {
     if (!this.available) throw new AiUnavailableException();
     const maxTokens = opts.maxTokens ?? 1024;
+    const start = Date.now();
     try {
-      return this.provider === 'openai'
+      const result = this.provider === 'openai'
         ? await this.openaiAgentStep(system, history, tools, maxTokens, opts.forceTool)
         : await this.anthropicAgentStep(system, history, tools, maxTokens, opts.forceTool);
+      void this.observability.record({
+        feature: opts.feature,
+        provider: this.provider,
+        model: this.modelName,
+        promptVersion: opts.promptVersion,
+        toolName: result.toolCall?.name ?? null,
+        latencyMs: Date.now() - start,
+        inputTokens: result.usage?.inputTokens ?? null,
+        outputTokens: result.usage?.outputTokens ?? null,
+        success: true,
+      });
+      return result;
     } catch (err) {
+      void this.observability.record({
+        feature: opts.feature,
+        provider: this.provider,
+        model: this.modelName,
+        promptVersion: opts.promptVersion,
+        latencyMs: Date.now() - start,
+        success: false,
+        errorMessage: (err as Error).message,
+      });
       if (err instanceof AiUnavailableException) throw err;
       this.logger.error(`LLM agent step failed: ${(err as Error).message}`);
       throw new AiUnavailableException();
@@ -91,17 +137,41 @@ export class LlmClient {
     system: string,
     history: AgentMessage[],
     tools: ToolSchema[] = [],
-    opts: { maxTokens?: number } = {},
+    opts: AgentStepOpts,
   ): AsyncGenerator<AgentStreamEvent, void, unknown> {
     if (!this.available) throw new AiUnavailableException();
     const maxTokens = opts.maxTokens ?? 1024;
+    const start = Date.now();
     try {
-      if (this.provider === 'openai') {
-        yield* this.openaiStreamAgentStep(system, history, tools, maxTokens);
-      } else {
-        yield* this.anthropicStreamAgentStep(system, history, tools, maxTokens);
+      const gen = this.provider === 'openai'
+        ? this.openaiStreamAgentStep(system, history, tools, maxTokens)
+        : this.anthropicStreamAgentStep(system, history, tools, maxTokens);
+      for await (const event of gen) {
+        yield event;
+        if (event.type === 'done') {
+          void this.observability.record({
+            feature: opts.feature,
+            provider: this.provider,
+            model: this.modelName,
+            promptVersion: opts.promptVersion,
+            toolName: event.result.toolCall?.name ?? null,
+            latencyMs: Date.now() - start,
+            inputTokens: event.result.usage?.inputTokens ?? null,
+            outputTokens: event.result.usage?.outputTokens ?? null,
+            success: true,
+          });
+        }
       }
     } catch (err) {
+      void this.observability.record({
+        feature: opts.feature,
+        provider: this.provider,
+        model: this.modelName,
+        promptVersion: opts.promptVersion,
+        latencyMs: Date.now() - start,
+        success: false,
+        errorMessage: (err as Error).message,
+      });
       if (err instanceof AiUnavailableException) throw err;
       this.logger.error(`LLM stream failed: ${(err as Error).message}`);
       throw new AiUnavailableException();
@@ -172,7 +242,10 @@ export class LlmClient {
         toolCall = { id: block.id, name: block.name, input: block.input };
       }
     }
-    return { text, toolCall };
+    const usage: TokenUsage | null = data.usage
+      ? { inputTokens: data.usage.input_tokens ?? 0, outputTokens: data.usage.output_tokens ?? 0 }
+      : null;
+    return { text, toolCall, usage };
   }
 
   private async *anthropicStreamAgentStep(
@@ -212,6 +285,8 @@ export class LlmClient {
     let toolCall: ToolCall | null = null;
     let toolJsonBuffer = '';
     let currentBlockType: string | null = null;
+    let inputTokens = 0;
+    let outputTokens = 0;
 
     for await (const payload of parseSseStream(res.body)) {
       if (payload === '[DONE]') break;
@@ -222,7 +297,9 @@ export class LlmClient {
         continue;
       }
 
-      if (event.type === 'content_block_start') {
+      if (event.type === 'message_start') {
+        inputTokens = event.message?.usage?.input_tokens ?? 0;
+      } else if (event.type === 'content_block_start') {
         currentBlockType = event.content_block?.type ?? null;
         if (currentBlockType === 'tool_use') {
           toolCall = { id: event.content_block.id, name: event.content_block.name, input: {} };
@@ -244,11 +321,14 @@ export class LlmClient {
           }
         }
         currentBlockType = null;
+      } else if (event.type === 'message_delta') {
+        outputTokens = event.usage?.output_tokens ?? outputTokens;
       } else if (event.type === 'message_stop') {
         break;
       }
     }
-    yield { type: 'done', result: { text, toolCall } };
+    const usage: TokenUsage | null = inputTokens || outputTokens ? { inputTokens, outputTokens } : null;
+    yield { type: 'done', result: { text, toolCall, usage } };
   }
 
   // ---------- OpenAI-compatible ----------
@@ -323,7 +403,10 @@ export class LlmClient {
       }
       toolCall = { id: tc.id, name: tc.function.name, input };
     }
-    return { text: msg.content ?? '', toolCall };
+    const usage: TokenUsage | null = data.usage
+      ? { inputTokens: data.usage.prompt_tokens ?? 0, outputTokens: data.usage.completion_tokens ?? 0 }
+      : null;
+    return { text: msg.content ?? '', toolCall, usage };
   }
 
   private async *openaiStreamAgentStep(
@@ -338,6 +421,7 @@ export class LlmClient {
       max_tokens: maxTokens,
       messages: this.toOpenAiMessages(system, history),
       stream: true,
+      stream_options: { include_usage: true },
     };
     if (tools.length) {
       body.tools = tools.map((t) => ({
@@ -359,6 +443,7 @@ export class LlmClient {
 
     let text = '';
     let toolAcc: { id?: string; name?: string; args: string } | null = null;
+    let usage: TokenUsage | null = null;
 
     for await (const payload of parseSseStream(res.body)) {
       if (payload === '[DONE]') break;
@@ -367,6 +452,12 @@ export class LlmClient {
         event = JSON.parse(payload);
       } catch {
         continue;
+      }
+      if (event.usage) {
+        usage = {
+          inputTokens: event.usage.prompt_tokens ?? 0,
+          outputTokens: event.usage.completion_tokens ?? 0,
+        };
       }
       const delta = event.choices?.[0]?.delta;
       if (!delta) continue;
@@ -395,7 +486,7 @@ export class LlmClient {
       }
       toolCall = { id: toolAcc.id ?? toolAcc.name, name: toolAcc.name, input };
     }
-    yield { type: 'done', result: { text, toolCall } };
+    yield { type: 'done', result: { text, toolCall, usage } };
   }
 }
 

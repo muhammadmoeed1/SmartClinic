@@ -6,6 +6,18 @@ import { SPECIALTIES } from '../common/enums';
 import { ToolSchema } from './llm.client';
 import { HistoryHit, KnowledgeHit } from '../knowledge/knowledge.service';
 
+/**
+ * Prompt/tool-schema version tags, recorded on every LLM call (see
+ * LlmObservabilityService) so eval results and cost/latency stats can be
+ * sliced by "which prompt version produced this". Bump the relevant entry
+ * whenever a prompt or tool schema changes meaningfully.
+ */
+export const PROMPT_VERSIONS = {
+  intake: 'intake-v2-agentic-tools',
+  recommend: 'recommend-v2-rag-tools',
+  soap: 'soap-v2-rag-tools',
+} as const;
+
 // ---------- Tool schemas (structured output — no regex parsing) ----------
 
 export const RECOMMEND_TOOL: ToolSchema = {

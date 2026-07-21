@@ -12,6 +12,7 @@
     "migration:revert": "npm run typeorm -- migration:revert",
     "seed": "ts-node -T src/database/seed.ts",
     "seed:knowledge": "ts-node -T src/database/seed-knowledge.ts",
+    "eval": "ts-node -T src/eval/run-eval.ts",
     "test": "jest",
     "test:cov": "jest --coverage",
     "lint": "eslint \"src/**/*.ts\"",

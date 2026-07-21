@@ -9,11 +9,12 @@ import { AppointmentStatus, SPECIALTIES } from '../common/enums';
 import { JwtUser } from '../common/decorators';
 import { AgentMessage, AiUnavailableException, LlmClient, ToolCall } from './llm.client';
 import { KnowledgeService } from '../knowledge/knowledge.service';
-import { SessionStore } from './session-store';
+import { SessionStore } from '../common/session-store';
+import { redactPii } from '../common/pii-redact';
 import {
-  INTAKE_OPENING_MESSAGE, INTAKE_SYSTEM_PROMPT, RECOMMEND_SYSTEM_PROMPT, RECOMMEND_TOOL,
-  RECORD_INTAKE_SUMMARY_TOOL, SEARCH_KNOWLEDGE_BASE_TOOL, SOAP_SYSTEM_PROMPT, SOAP_TOOL,
-  recommendUserPrompt, soapUserPrompt,
+  INTAKE_OPENING_MESSAGE, INTAKE_SYSTEM_PROMPT, PROMPT_VERSIONS, RECOMMEND_SYSTEM_PROMPT,
+  RECOMMEND_TOOL, RECORD_INTAKE_SUMMARY_TOOL, SEARCH_KNOWLEDGE_BASE_TOOL, SOAP_SYSTEM_PROMPT,
+  SOAP_TOOL, recommendUserPrompt, soapUserPrompt,
 } from './prompts';
 
 interface IntakeSession {
@@ -42,16 +43,22 @@ export class AiService {
   // ---------- AI Feature 2: Smart Appointment Recommender (RAG) ----------
 
   async recommend(user: JwtUser, description: string) {
+    const { redacted: safeDescription } = redactPii(description);
     const [historyHits, knowledgeHits] = await Promise.all([
-      this.knowledge.searchPatientHistory(user.id, description, 3),
-      this.knowledge.searchKnowledge(description, 3, 'specialty-routing'),
+      this.knowledge.searchPatientHistory(user.id, safeDescription, 3),
+      this.knowledge.searchKnowledge(safeDescription, 3, 'specialty-routing'),
     ]);
 
     const step = await this.llm.runAgentStep(
       RECOMMEND_SYSTEM_PROMPT,
-      [{ role: 'user', content: recommendUserPrompt(description, historyHits, knowledgeHits) }],
+      [{ role: 'user', content: recommendUserPrompt(safeDescription, historyHits, knowledgeHits) }],
       [RECOMMEND_TOOL],
-      { maxTokens: 512, forceTool: RECOMMEND_TOOL.name },
+      {
+        maxTokens: 512,
+        forceTool: RECOMMEND_TOOL.name,
+        feature: 'recommend',
+        promptVersion: PROMPT_VERSIONS.recommend,
+      },
     );
 
     const input = step.toolCall?.input ?? {};
@@ -116,7 +123,7 @@ export class AiService {
 
   async intakeMessage(user: JwtUser, sessionId: string, message: string) {
     const session = await this.getIntakeSession(sessionId, user.id);
-    session.history.push({ role: 'user', content: message });
+    session.history.push({ role: 'user', content: redactPii(message).redacted });
 
     const result = await this.runIntakeAgentLoop(session);
     if (result.summary) {
@@ -146,7 +153,7 @@ export class AiService {
     unknown
   > {
     const session = await this.getIntakeSession(sessionId, user.id);
-    session.history.push({ role: 'user', content: message });
+    session.history.push({ role: 'user', content: redactPii(message).redacted });
     const tools = [SEARCH_KNOWLEDGE_BASE_TOOL, RECORD_INTAKE_SUMMARY_TOOL];
 
     for (let hop = 0; hop < MAX_TOOL_HOPS; hop++) {
@@ -154,6 +161,8 @@ export class AiService {
       let toolCall: ToolCall | null = null;
       for await (const event of this.llm.streamAgentStep(INTAKE_SYSTEM_PROMPT, session.history, tools, {
         maxTokens: 1024,
+        feature: 'intake_stream',
+        promptVersion: PROMPT_VERSIONS.intake,
       })) {
         if (event.type === 'text') {
           yield { type: 'text', delta: event.delta };
@@ -210,6 +219,8 @@ export class AiService {
     for (let hop = 0; hop < MAX_TOOL_HOPS; hop++) {
       const step = await this.llm.runAgentStep(INTAKE_SYSTEM_PROMPT, session.history, tools, {
         maxTokens: 1024,
+        feature: 'intake',
+        promptVersion: PROMPT_VERSIONS.intake,
       });
 
       if (!step.toolCall) {
@@ -283,12 +294,18 @@ export class AiService {
   // ---------- AI Feature 3: Clinical Note Assistant (SOAP formatter, RAG) ----------
 
   async soapFormat(rawNotes: string) {
-    const knowledgeHits = await this.knowledge.searchKnowledge(rawNotes, 2, 'documentation');
+    const { redacted: safeNotes } = redactPii(rawNotes);
+    const knowledgeHits = await this.knowledge.searchKnowledge(safeNotes, 2, 'documentation');
     const step = await this.llm.runAgentStep(
       SOAP_SYSTEM_PROMPT,
-      [{ role: 'user', content: soapUserPrompt(rawNotes, knowledgeHits) }],
+      [{ role: 'user', content: soapUserPrompt(safeNotes, knowledgeHits) }],
       [SOAP_TOOL],
-      { maxTokens: 1024, forceTool: SOAP_TOOL.name },
+      {
+        maxTokens: 1024,
+        forceTool: SOAP_TOOL.name,
+        feature: 'soap_format',
+        promptVersion: PROMPT_VERSIONS.soap,
+      },
     );
     const input = step.toolCall?.input;
     if (!input) {

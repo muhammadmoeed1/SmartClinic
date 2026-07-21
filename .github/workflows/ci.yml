@@ -37,6 +37,14 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: LLM eval (recommend + SOAP quality)
+        env:
+          AI_API_KEY: ${{ secrets.AI_API_KEY }}
+          AI_PROVIDER: openai
+          AI_MODEL: llama-3.3-70b-versatile
+          AI_BASE_URL: https://api.groq.com/openai/v1
+        run: npm run eval
+
       - name: Upload coverage
         uses: actions/upload-artifact@v4
         with:

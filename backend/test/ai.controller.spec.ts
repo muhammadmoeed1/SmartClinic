@@ -3,6 +3,8 @@ import request from 'supertest';
 import { AiController } from '../src/ai/ai.controller';
 import { AiService } from '../src/ai/ai.service';
 import { NoShowService } from '../src/ai/no-show.service';
+import { LlmObservabilityService } from '../src/ai/llm-observability.service';
+import { KnowledgeService } from '../src/knowledge/knowledge.service';
 import { AiUnavailableException } from '../src/ai/llm.client';
 import { Role } from '../src/common/enums';
 import { auth, createTestApp, IDS } from './test-utils';
@@ -31,11 +33,19 @@ describe('AiController', () => {
       { appointmentId: IDS.appointment, score: 0.7, factors: ['x'] },
     ]),
   };
+  const llmObservability = {
+    statsByFeature: jest.fn().mockResolvedValue([]),
+  };
+  const knowledge = {
+    cacheStats: { hits: 0, misses: 0, hitRate: 0 },
+  };
 
   beforeAll(async () => {
     app = await createTestApp([AiController], [
       { provide: AiService, useValue: ai },
       { provide: NoShowService, useValue: noShow },
+      { provide: LlmObservabilityService, useValue: llmObservability },
+      { provide: KnowledgeService, useValue: knowledge },
     ]);
   });
   afterAll(() => app.close());
@@ -123,5 +133,13 @@ describe('AiController', () => {
     const res = await request(app.getHttpServer())
       .get('/ai/no-show-risk?date=2026-07-15').set(...auth(Role.RECEPTIONIST)).expect(200);
     expect(res.body[0].score).toBeGreaterThan(0.65);
+  });
+
+  it('GET /ai/observability is admin-only and returns LLM call stats + RAG cache stats', async () => {
+    await request(app.getHttpServer())
+      .get('/ai/observability').set(...auth(Role.RECEPTIONIST)).expect(403);
+    const res = await request(app.getHttpServer())
+      .get('/ai/observability').set(...auth(Role.ADMIN)).expect(200);
+    expect(res.body).toEqual({ llmCalls: [], ragCache: { hits: 0, misses: 0, hitRate: 0 } });
   });
 });

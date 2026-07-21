@@ -2,8 +2,10 @@ import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import Redis from 'ioredis';
 
 /**
- * Stores short-lived agent conversation state (e.g. the intake chatbot's
- * message history). Uses Redis when REDIS_URL is configured — required once
+ * Generic keyed store for short-lived values with a TTL — used both for
+ * agent conversation state (e.g. the intake chatbot's message history) and,
+ * with a different namespace, as a cache (e.g. KnowledgeService's RAG
+ * search cache). Uses Redis when REDIS_URL is configured — required once
  * the backend runs as more than one instance, since state must survive being
  * served by a different instance on the next request. Falls back to an
  * in-process Map for local/single-instance use, consistent with this
@@ -15,7 +17,7 @@ export class SessionStore<T = unknown> implements OnModuleDestroy {
   private redis: Redis | null = null;
   private memory = new Map<string, { value: T; expiresAt: number }>();
 
-  constructor() {
+  constructor(private namespace: string = 'session') {
     const url = process.env.REDIS_URL;
     if (url) {
       this.redis = new Redis(url, { maxRetriesPerRequest: 2 });
@@ -58,7 +60,7 @@ export class SessionStore<T = unknown> implements OnModuleDestroy {
   }
 
   private key(id: string): string {
-    return `smartclinic:session:${id}`;
+    return `smartclinic:${this.namespace}:${id}`;
   }
 
   onModuleDestroy(): void {

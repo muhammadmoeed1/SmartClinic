@@ -42,4 +42,19 @@ describe('KnowledgeService', () => {
     expect(sql).toContain("assessment <> ''");
     expect(params).toEqual(['[0.5,0.5]', 'patient-1', 3]);
   });
+
+  it('caches repeated identical searches and reports hit/miss stats', async () => {
+    (embeddings.embed as jest.Mock).mockResolvedValue([0.1, 0.2]);
+    dataSource.query.mockResolvedValue([
+      { id: '1', title: 't', content: 'c', category: 'triage', specialty: null, score: 0.9 },
+    ]);
+
+    const first = await service.searchKnowledge('fever', 2, 'triage');
+    const second = await service.searchKnowledge('fever', 2, 'triage');
+
+    expect(second).toEqual(first);
+    expect(dataSource.query).toHaveBeenCalledTimes(1); // second call served from cache
+    expect(embeddings.embed).toHaveBeenCalledTimes(1); // no redundant re-embedding either
+    expect(service.cacheStats).toEqual({ hits: 1, misses: 1, hitRate: 0.5 });
+  });
 });

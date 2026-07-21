@@ -8,3 +8,4 @@ export { LabFile } from './lab-file.entity';
 export { TriageSummary, TriageData } from './triage-summary.entity';
 export { PreAuth } from './pre-auth.entity';
 export { Notification } from './notification.entity';
+export { LlmCall } from './llm-call.entity';

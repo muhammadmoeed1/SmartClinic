@@ -11,15 +11,18 @@ React (no keys, no direct LLM calls)
    │  REST + SSE
    ▼
 NestJS AI proxy module (backend/src/ai/)
-   ├── ai.controller.ts    role-guarded endpoints (incl. SSE stream)
-   ├── ai.service.ts       feature logic + agentic intake loop
-   ├── llm.client.ts       provider-agnostic client: tool-use + streaming
-   ├── session-store.ts    intake conversation state (Redis, or in-memory)
-   ├── prompts.ts          system prompts + tool JSON Schemas
-   └── no-show.service.ts  rule-based risk scoring (no LLM)
+   ├── ai.controller.ts          role-guarded endpoints (incl. SSE stream, /ai/observability)
+   ├── ai.service.ts             feature logic + agentic intake loop + PII redaction
+   ├── llm.client.ts             provider-agnostic client: tool-use + streaming + usage capture
+   ├── llm-observability.service.ts  logs every call (latency/tokens/success) to llm_calls
+   ├── prompts.ts                system prompts + tool JSON Schemas + PROMPT_VERSIONS
+   └── no-show.service.ts        rule-based risk scoring (no LLM)
    │
-   ├──▶ knowledge/knowledge.service.ts   RAG search (pgvector cosine distance)
+   ├──▶ common/session-store.ts        Redis-or-memory keyed store (sessions AND RAG cache)
+   ├──▶ common/pii-redact.ts           regex-based PII guardrail applied before every LLM call
+   ├──▶ knowledge/knowledge.service.ts RAG search (pgvector cosine distance) + result caching
    │       └── embedding/embedding.service.ts  local MiniLM embeddings (no API)
+   └──▶ eval/run-eval.ts               offline eval harness (accuracy + LLM-as-judge)
    │
    │  HTTPS (AI_API_KEY from .env, never sent to the frontend)
    ▼
@@ -68,6 +71,60 @@ free text and parsing it with regex:
 `LlmClient.runAgentStep()` implements this once per provider (Anthropic tool
 use / OpenAI-compatible function calling) so callers never touch raw
 provider response shapes.
+
+## Observability
+
+Every `runAgentStep`/`streamAgentStep` call — success or failure — is logged
+to the `llm_calls` table via `LlmObservabilityService`: feature name,
+provider, model, prompt version, tool called (if any), latency, input/output
+token counts (parsed from the provider's `usage` field, including from
+streamed responses), and outcome. `GET /ai/observability` (admin only)
+aggregates this by feature (call count, success rate, avg latency, total
+tokens) plus the RAG cache hit rate — the basis for a cost/latency dashboard.
+Logging failures never break the calling feature (best-effort, wrapped in
+try/catch).
+
+## Prompt versioning
+
+`prompts.ts` exports `PROMPT_VERSIONS` — a version tag per feature (e.g.
+`recommend-v2-rag-tools`), recorded on every logged call. Bump the tag
+whenever a prompt or tool schema changes meaningfully, so eval results and
+observability stats can be sliced by "which version produced this."
+
+## Guardrails
+
+- **PII redaction** (`common/pii-redact.ts`): regex-based best-effort
+  redaction (emails, phone numbers, Pakistani CNIC numbers, card-like digit
+  sequences) applied to every piece of patient/doctor free text before it
+  reaches a prompt — the intake chatbot's messages, the recommender's
+  description, and the SOAP formatter's raw notes. Not a compliance
+  guarantee; a defense-in-depth layer alongside never sending patient
+  identifiers (name, MRN) in prompts at all.
+- **Hallucination guards** (existing, from Phase 2): the recommended
+  specialty is checked against the real catalogue and real bookable doctors
+  are attached server-side, never model-invented; tool-call arguments are
+  JSON-Schema validated by the provider itself.
+
+## Caching
+
+`KnowledgeService` caches RAG search results (Redis-or-memory via
+`SessionStore`, keyed by a hash of the normalized query) — the static
+knowledge base for 24h (content only changes on re-seed), patient history
+for 10 minutes (changes whenever a visit is finalized). Hit/miss counters
+are exposed via `cacheStats` and surfaced in `/ai/observability`, avoiding
+redundant embedding + database round-trips for repeated lookups.
+
+## Eval harness
+
+`backend/src/eval/run-eval.ts` (`npm run eval`) runs the Smart Recommender
+against 10 curated cases (rule-based specialty-accuracy metric) and the SOAP
+formatter against 3 (structural-validity metric: does the tool call return
+non-empty required sections), then runs an **LLM-as-judge** pass
+(`eval/judge.ts`) scoring each recommender rationale 1-5 against a rubric
+(faithfulness to the description, no diagnostic language, specificity).
+Requires `AI_API_KEY`; skips gracefully (exit 0) when unset, so it's safe to
+run unconditionally in CI — it only gates the build when a key is configured
+(via the `AI_API_KEY` repo secret) and quality drops below threshold.
 
 ## Feature 1 — Patient Intake Chatbot (agentic + streamed)
 
@@ -157,3 +214,11 @@ provider response shapes.
    notes text and retrieved context); still, symptom text is PHI — discuss
    provider data-retention policies, the .env key handling, and why the
    proxy layer is the enforcement point.
+6. Why observability matters even for a demo: without per-call logging,
+   "the AI feature is slow/expensive/wrong" has no evidence trail — the
+   `llm_calls` table turns vague complaints into "feature X averages 1.8s
+   and 40% of failures are from provider timeouts."
+7. LLM-as-judge limitations: judging with the same model/provider being
+   judged is a known weakness (shared blind spots) — a stronger or
+   independent judge model would be more rigorous; documented here as a
+   conscious scope tradeoff, not an oversight.
