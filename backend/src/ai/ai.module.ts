@@ -17,6 +17,15 @@ import { SessionStore } from '../common/session-store';
     KnowledgeModule,
   ],
   controllers: [AiController],
-  providers: [AiService, LlmClient, LlmObservabilityService, NoShowService, SessionStore],
+  providers: [
+    AiService,
+    LlmClient,
+    LlmObservabilityService,
+    NoShowService,
+    // Plain class registration would make Nest try to DI-resolve the
+    // `namespace: string` constructor param (and fail — there's no provider
+    // for a bare `String` token). A factory sidesteps that entirely.
+    { provide: SessionStore, useFactory: () => new SessionStore('session') },
+  ],
 })
 export class AiModule {}
