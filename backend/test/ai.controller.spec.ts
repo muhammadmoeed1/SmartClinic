@@ -143,3 +143,80 @@ describe('AiController', () => {
     expect(res.body).toEqual({ llmCalls: [], ragCache: { hits: 0, misses: 0, hitRate: 0 } });
   });
 });
+
+describe('AiController.intakeMessageStream — client disconnect handling', () => {
+  function fakeResponse() {
+    let ended = false;
+    let closeHandler: () => void = () => {};
+    const writes: string[] = [];
+    const res: any = {
+      status: jest.fn(),
+      setHeader: jest.fn(),
+      flushHeaders: jest.fn(),
+      write: jest.fn((chunk: string) => writes.push(chunk)),
+      end: jest.fn(() => {
+        ended = true;
+      }),
+      get writableEnded() {
+        return ended;
+      },
+      on: jest.fn((event: string, handler: () => void) => {
+        if (event === 'close') closeHandler = handler;
+      }),
+    };
+    return { res, writes, simulateDisconnect: () => closeHandler() };
+  }
+
+  it('aborts the underlying stream and stops writing once the client disconnects', async () => {
+    let capturedSignal: AbortSignal | undefined;
+    const { res, writes, simulateDisconnect } = fakeResponse();
+
+    const ai = {
+      intakeMessageStream: jest.fn(async function* (
+        _user: unknown,
+        _sessionId: unknown,
+        _message: unknown,
+        signal: AbortSignal,
+      ) {
+        capturedSignal = signal;
+        yield { type: 'text', delta: 'Hel' };
+        simulateDisconnect();
+        yield { type: 'text', delta: 'lo' };
+        yield { type: 'done', completed: false };
+      }),
+    };
+    const controller = new AiController(ai as any, {} as any, {} as any, {} as any);
+
+    await controller.intakeMessageStream(
+      { id: 'patient-1' } as any,
+      { sessionId: 'session-1', message: 'hi' } as any,
+      res,
+    );
+
+    expect(capturedSignal?.aborted).toBe(true);
+    expect(writes.some((w) => w.includes('"delta":"lo"'))).toBe(false);
+    expect(writes.some((w) => w.includes('"delta":"Hel"'))).toBe(true);
+    expect(res.end).not.toHaveBeenCalled();
+  });
+
+  it('does not treat normal completion as a disconnect', async () => {
+    const { res, writes } = fakeResponse();
+    const ai = {
+      intakeMessageStream: jest.fn(async function* () {
+        yield { type: 'text', delta: 'Hi' };
+        yield { type: 'done', completed: false };
+      }),
+    };
+    const controller = new AiController(ai as any, {} as any, {} as any, {} as any);
+
+    await controller.intakeMessageStream(
+      { id: 'patient-1' } as any,
+      { sessionId: 'session-1', message: 'hi' } as any,
+      res,
+    );
+
+    expect(writes.some((w) => w.includes('"delta":"Hi"'))).toBe(true);
+    expect(writes.some((w) => w.includes('"type":"done"'))).toBe(true);
+    expect(res.end).toHaveBeenCalled();
+  });
+});

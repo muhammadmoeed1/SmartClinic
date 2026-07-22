@@ -52,6 +52,10 @@ export interface AgentStepOpts {
   feature: string;
   /** Prompt/tool-schema version in use, for the prompt-versioning registry. */
   promptVersion?: string;
+  /** Aborts the underlying provider request — e.g. when the client disconnects
+   *  mid-stream, so the backend doesn't keep paying for/waiting on an
+   *  abandoned generation. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -103,8 +107,8 @@ export class LlmClient {
     const start = Date.now();
     try {
       const result = this.provider === 'openai'
-        ? await this.openaiAgentStep(system, history, tools, maxTokens, opts.forceTool)
-        : await this.anthropicAgentStep(system, history, tools, maxTokens, opts.forceTool);
+        ? await this.openaiAgentStep(system, history, tools, maxTokens, opts.forceTool, opts.signal)
+        : await this.anthropicAgentStep(system, history, tools, maxTokens, opts.forceTool, opts.signal);
       void this.observability.record({
         feature: opts.feature,
         provider: this.provider,
@@ -144,8 +148,8 @@ export class LlmClient {
     const start = Date.now();
     try {
       const gen = this.provider === 'openai'
-        ? this.openaiStreamAgentStep(system, history, tools, maxTokens)
-        : this.anthropicStreamAgentStep(system, history, tools, maxTokens);
+        ? this.openaiStreamAgentStep(system, history, tools, maxTokens, opts.signal)
+        : this.anthropicStreamAgentStep(system, history, tools, maxTokens, opts.signal);
       for await (const event of gen) {
         yield event;
         if (event.type === 'done') {
@@ -206,6 +210,7 @@ export class LlmClient {
     tools: ToolSchema[],
     maxTokens: number,
     forceTool?: string,
+    signal?: AbortSignal,
   ): Promise<AgentStepResult> {
     const body: Record<string, unknown> = {
       model: process.env.AI_MODEL || 'claude-sonnet-5',
@@ -230,6 +235,7 @@ export class LlmClient {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify(body),
+      signal,
     });
     if (!res.ok) throw new Error(`Anthropic API ${res.status}: ${await res.text()}`);
     const data: any = await res.json();
@@ -253,6 +259,7 @@ export class LlmClient {
     history: AgentMessage[],
     tools: ToolSchema[],
     maxTokens: number,
+    signal?: AbortSignal,
   ): AsyncGenerator<AgentStreamEvent, void, unknown> {
     const body: Record<string, unknown> = {
       model: process.env.AI_MODEL || 'claude-sonnet-5',
@@ -277,6 +284,7 @@ export class LlmClient {
         'x-api-key': process.env.AI_API_KEY!,
         'anthropic-version': '2023-06-01',
       },
+      signal,
       body: JSON.stringify(body),
     });
     if (!res.ok || !res.body) throw new Error(`Anthropic API ${res.status}: ${await res.text()}`);
@@ -365,6 +373,7 @@ export class LlmClient {
     tools: ToolSchema[],
     maxTokens: number,
     forceTool?: string,
+    signal?: AbortSignal,
   ): Promise<AgentStepResult> {
     const baseUrl = process.env.AI_BASE_URL || 'https://api.openai.com/v1';
     const body: Record<string, unknown> = {
@@ -387,6 +396,7 @@ export class LlmClient {
         authorization: `Bearer ${process.env.AI_API_KEY}`,
       },
       body: JSON.stringify(body),
+      signal,
     });
     if (!res.ok) throw new Error(`OpenAI API ${res.status}: ${await res.text()}`);
     const data: any = await res.json();
@@ -414,6 +424,7 @@ export class LlmClient {
     history: AgentMessage[],
     tools: ToolSchema[],
     maxTokens: number,
+    signal?: AbortSignal,
   ): AsyncGenerator<AgentStreamEvent, void, unknown> {
     const baseUrl = process.env.AI_BASE_URL || 'https://api.openai.com/v1';
     const body: Record<string, unknown> = {
@@ -438,6 +449,7 @@ export class LlmClient {
         authorization: `Bearer ${process.env.AI_API_KEY}`,
       },
       body: JSON.stringify(body),
+      signal,
     });
     if (!res.ok || !res.body) throw new Error(`OpenAI API ${res.status}: ${await res.text()}`);
 

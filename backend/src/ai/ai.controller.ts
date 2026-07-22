@@ -67,17 +67,36 @@ export class AiController {
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders();
 
+    // If the client disconnects mid-stream (closed tab, navigated away),
+    // abort the in-flight LLM request instead of paying for/waiting on a
+    // generation nobody will ever see, and stop writing to the dead socket.
+    // Node's `close` event also fires on normal completion, so only treat it
+    // as a disconnect if we hadn't already finished writing the response.
+    const abortController = new AbortController();
+    let clientDisconnected = false;
+    res.on('close', () => {
+      if (!res.writableEnded) {
+        clientDisconnected = true;
+        abortController.abort();
+      }
+    });
+
     try {
-      for await (const event of this.ai.intakeMessageStream(user, dto.sessionId, dto.message)) {
+      for await (const event of this.ai.intakeMessageStream(
+        user, dto.sessionId, dto.message, abortController.signal,
+      )) {
+        if (clientDisconnected) break;
         res.write(`data: ${JSON.stringify(event)}\n\n`);
       }
     } catch (err) {
-      const payload = err instanceof AiUnavailableException
-        ? { type: 'error', fallback: true }
-        : { type: 'error', fallback: false };
-      res.write(`data: ${JSON.stringify(payload)}\n\n`);
+      if (!clientDisconnected) {
+        const payload = err instanceof AiUnavailableException
+          ? { type: 'error', fallback: true }
+          : { type: 'error', fallback: false };
+        res.write(`data: ${JSON.stringify(payload)}\n\n`);
+      }
     } finally {
-      res.end();
+      if (!clientDisconnected) res.end();
     }
   }
 

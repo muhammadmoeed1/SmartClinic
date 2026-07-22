@@ -147,6 +147,7 @@ export class AiService {
     user: JwtUser,
     sessionId: string,
     message: string,
+    signal?: AbortSignal,
   ): AsyncGenerator<
     { type: 'text'; delta: string } | { type: 'done'; completed: boolean; summary?: TriageData },
     void,
@@ -163,6 +164,7 @@ export class AiService {
         maxTokens: 1024,
         feature: 'intake_stream',
         promptVersion: PROMPT_VERSIONS.intake,
+        signal,
       })) {
         if (event.type === 'text') {
           yield { type: 'text', delta: event.delta };
