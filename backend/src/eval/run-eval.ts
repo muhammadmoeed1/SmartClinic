@@ -9,6 +9,8 @@
  * Run with: npm run eval
  */
 import 'reflect-metadata';
+import * as path from 'path';
+import * as dotenv from 'dotenv';
 import { LlmClient } from '../ai/llm.client';
 import { LlmObservabilityService } from '../ai/llm-observability.service';
 import {
@@ -17,6 +19,8 @@ import {
 } from '../ai/prompts';
 import { RECOMMEND_CASES, SOAP_CASES } from './dataset';
 import { judgeRationale } from './judge';
+
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 // No DB in this harness, so no rows to write — a no-op keeps LlmClient's
 // observability call a no-op instead of pulling in TypeORM/DataSource.
