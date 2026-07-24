@@ -1,4 +1,11 @@
 # Render Blueprint (Infrastructure as Code) for the SmartClinic backend.
+#
+# NOTE: Render's free web-service tier requires a credit card at signup
+# (unlike Neon and Vercel). DEPLOYMENT.md's primary path uses Back4app
+# Containers instead, which needs no card. Use this file only if you're
+# fine giving Render a card — it won't charge you unless you exceed free
+# limits, which this demo app won't.
+#
 # Deploy: push this repo, then on render.com choose "New +" → "Blueprint" and
 # point it at this repository. Render reads this file and provisions the service.
 #

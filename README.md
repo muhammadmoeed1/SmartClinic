@@ -225,7 +225,7 @@ docker-compose.yml   Orchestrates PostgreSQL + backend containers
 - [docs/AI_INTEGRATION.md](docs/AI_INTEGRATION.md) — the AI subsystem's architecture: RAG, tool-use, the agentic loop, observability, caching, the eval harness (with sequence diagrams).
 - [docs/BLOG_POST.md](docs/BLOG_POST.md) — a technical write-up on the design decisions and trade-offs behind it.
 - [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) — shot list for a short walkthrough video.
-- [DEPLOYMENT.md](DEPLOYMENT.md) — free-tier deploy guide (Neon + Render + Vercel).
+- [DEPLOYMENT.md](DEPLOYMENT.md) — free-tier, no-credit-card deploy guide (Neon + Back4app + Vercel).
 
 ---
 
