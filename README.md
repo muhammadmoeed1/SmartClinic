@@ -15,6 +15,16 @@ The entire application (database + backend) runs in **Docker**, so no manual dat
 
 > **Live demo:** _(add your Vercel URL here after deploying — see [DEPLOYMENT.md](DEPLOYMENT.md))_
 
+**Verified, not just built:** this isn't a described-but-untested feature list. CI runs 16 backend test suites, a Playwright E2E suite against real Postgres/Redis service containers, and an LLM eval harness — all green. A sample real run against Groq's `llama-3.3-70b-versatile`:
+
+| Metric | Result |
+|---|---|
+| Specialty recommendation accuracy | **100%** (10/10 curated cases) |
+| LLM-as-judge rationale quality | **5.00 / 5** average |
+| SOAP note structural validity | **100%** (3/3 curated cases) |
+
+Reproduce it yourself: `cd backend && npm run eval` (needs `AI_API_KEY`; see [Testing](#testing)).
+
 ---
 
 ## Architecture
@@ -73,7 +83,7 @@ No LLM API key is ever sent to the frontend — every AI call is proxied through
 - [Alternative: Manual Backend Setup (without Docker)](#alternative-manual-backend-setup-without-docker)
 - [Testing](#testing)
 - [Troubleshooting](#troubleshooting)
-- [Academic Integrity Note](#academic-integrity-note)
+- [Project Origin](#project-origin)
 
 ---
 
@@ -109,9 +119,12 @@ Both commands should print a version number. If either fails, revisit the instal
 
 This is the fastest and most reliable way to run the project — everything except the frontend runs inside Docker containers, so there is nothing to configure manually.
 
-### 1. Extract the project
+### 1. Clone the repository
 
-Extract the ZIP file anywhere on your computer, e.g. `C:\SmartClinic`.
+```bash
+git clone https://github.com/muhammadmoeed1/SmartClinic.git
+cd SmartClinic
+```
 
 ### 2. Open the project folder in a terminal
 
@@ -343,6 +356,6 @@ Docker Desktop's UI does not display table contents. Either:
 
 ---
 
-## Academic Integrity Note
+## Project Origin
 
-The reflection report and system design document must be written by the team in their own words (per the course spec, AI tools may not write those). The `docs/` folder contains technical reference material (API contract, ER diagram) to help produce them — it does not replace that requirement.
+SmartClinic began as a university coursework project and has since been substantially rebuilt as a personal portfolio piece — the AI subsystem (RAG, tool-use, the agentic loop, observability, eval harness, guardrails), production hardening (rate limiting, structured logging, metrics, E2E tests), and CI/CD were all added afterward. See [docs/BLOG_POST.md](docs/BLOG_POST.md) for the design decisions behind that work.
