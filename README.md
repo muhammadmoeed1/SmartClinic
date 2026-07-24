@@ -13,7 +13,7 @@ Stack: **React 18 + TypeScript** frontend, **NestJS** backend, **PostgreSQL 15 +
 
 The entire application (database + backend) runs in **Docker**, so no manual database installation or configuration is required.
 
-> **Live demo:** _(add your Vercel URL here after deploying — see [DEPLOYMENT.md](DEPLOYMENT.md))_
+> **Live demo:** _(coming soon)_
 
 **Verified, not just built:** this isn't a described-but-untested feature list. CI runs 16 backend test suites, a Playwright E2E suite against real Postgres/Redis service containers, and an LLM eval harness — all green. A sample real run against Groq's `llama-3.3-70b-versatile`:
 
@@ -225,7 +225,6 @@ docker-compose.yml   Orchestrates PostgreSQL + backend containers
 - [docs/AI_INTEGRATION.md](docs/AI_INTEGRATION.md) — the AI subsystem's architecture: RAG, tool-use, the agentic loop, observability, caching, the eval harness (with sequence diagrams).
 - [docs/BLOG_POST.md](docs/BLOG_POST.md) — a technical write-up on the design decisions and trade-offs behind it.
 - [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) — shot list for a short walkthrough video.
-- [DEPLOYMENT.md](DEPLOYMENT.md) — free-tier, no-credit-card deploy guide (Neon + Back4app + Vercel).
 
 ---
 
