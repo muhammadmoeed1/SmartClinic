@@ -28,7 +28,7 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
         client.handshake.auth?.token ||
         (client.handshake.headers.authorization || '').replace('Bearer ', '');
       const payload = await this.jwt.verifyAsync(token, {
-        secret: process.env.JWT_ACCESS_SECRET || 'dev-access-secret-change-me',
+        secret: (process.env.JWT_ACCESS_SECRET || 'dev-access-secret-change-me').trim(),
       });
       client.data.userId = payload.sub;
       client.data.role = payload.role;

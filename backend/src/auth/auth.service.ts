@@ -24,12 +24,12 @@ export class AuthService {
   private async issueTokens(user: User): Promise<TokenPair> {
     const payload = { sub: user.id, email: user.email, role: user.role };
     const accessToken = await this.jwt.signAsync(payload, {
-      secret: process.env.JWT_ACCESS_SECRET || 'dev-access-secret-change-me',
-      expiresIn: process.env.JWT_ACCESS_TTL || '900s',
+      secret: (process.env.JWT_ACCESS_SECRET || 'dev-access-secret-change-me').trim(),
+      expiresIn: (process.env.JWT_ACCESS_TTL || '900s').trim(),
     });
     const refreshToken = await this.jwt.signAsync(payload, {
-      secret: process.env.JWT_REFRESH_SECRET || 'dev-refresh-secret-change-me',
-      expiresIn: process.env.JWT_REFRESH_TTL || '7d',
+      secret: (process.env.JWT_REFRESH_SECRET || 'dev-refresh-secret-change-me').trim(),
+      expiresIn: (process.env.JWT_REFRESH_TTL || '7d').trim(),
     });
     await this.users.update(user.id, {
       refreshTokenHash: await bcrypt.hash(refreshToken, 10),
@@ -82,7 +82,7 @@ export class AuthService {
     let payload: { sub: string };
     try {
       payload = await this.jwt.verifyAsync(refreshToken, {
-        secret: process.env.JWT_REFRESH_SECRET || 'dev-refresh-secret-change-me',
+        secret: (process.env.JWT_REFRESH_SECRET || 'dev-refresh-secret-change-me').trim(),
       });
     } catch {
       throw new UnauthorizedException('Invalid refresh token');
