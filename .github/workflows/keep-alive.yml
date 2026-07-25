@@ -1,11 +1,13 @@
 name: Keep-Alive
 
-# Render's free web service spins down after ~15 minutes of inactivity, causing
-# a slow (~50s) cold start on the next request. This pings the health endpoint
-# every 14 minutes so the live demo stays warm for anyone who clicks the link.
+# Koyeb's free instance scales to zero after 1 hour of inactivity, causing a
+# slow cold start on the next request and pausing in-process cron jobs
+# (@nestjs/schedule appointment reminders) while asleep. This pings the health
+# endpoint every 14 minutes so the live demo stays warm for anyone who clicks
+# the link, and reminders keep firing.
 #
 # Setup: add a repository variable BACKEND_URL (Settings → Secrets and variables
-# → Actions → Variables) set to your Render URL, e.g. https://smartclinic-api.onrender.com
+# → Actions → Variables) set to your Koyeb URL, e.g. https://smartclinic-api.koyeb.app
 # If BACKEND_URL is not set, the job no-ops quietly.
 
 on:
