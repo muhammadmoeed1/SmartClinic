@@ -34,7 +34,11 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api', app, document);
 
-  const port = parseInt(process.env.PORT || '3000', 10);
+  const rawPort = (process.env.PORT || '3000').trim().replace(/^["']|["']$/g, '');
+  const parsedPort = parseInt(rawPort, 10);
+  const port = Number.isInteger(parsedPort) && parsedPort > 0 && parsedPort < 65536
+    ? parsedPort
+    : 3000;
   await app.listen(port);
   console.log(`SmartClinic API listening on http://localhost:${port} (Swagger: /api)`);
 }
