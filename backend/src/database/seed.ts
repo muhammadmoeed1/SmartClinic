@@ -10,6 +10,7 @@ import {
   User, DoctorProfile, Room, Appointment, PreAuth, VisitRecord,
 } from '../entities';
 import { AppointmentStatus, PreAuthStatus, Role, INSURANCE_PROVIDERS } from '../common/enums';
+import { clinicDateStr, clinicTime } from '../common/clinic-time';
 
 const PASSWORD = 'Password1!';
 
@@ -44,9 +45,7 @@ function rand(n: number): number {
 }
 
 function atHour(base: Date, hour: number, minute = 0): Date {
-  const d = new Date(base);
-  d.setHours(hour, minute, 0, 0);
-  return d;
+  return clinicTime(clinicDateStr(base), hour, minute);
 }
 
 async function main() {

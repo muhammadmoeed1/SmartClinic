@@ -1,6 +1,30 @@
 import { AxiosError } from 'axios';
 import type { ApiErrorBody, AppointmentStatus, Role } from './types';
 
+/**
+ * SmartClinic operates on a single fixed clinic timezone (Asia/Karachi,
+ * UTC+5, no DST) regardless of the browser's own timezone — otherwise a
+ * slot booked as "9 AM" would render at a different wall-clock hour (or
+ * fall outside the displayed day entirely) depending on where the person
+ * viewing it happens to be. Every date/time helper below is anchored to
+ * this, mirroring the backend's `common/clinic-time.ts`.
+ */
+const CLINIC_TZ = 'Asia/Karachi';
+
+function clinicParts(d: Date) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: CLINIC_TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(d);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
+  return { year: get('year'), month: get('month'), day: get('day'), hour: get('hour'), minute: get('minute') };
+}
+
 /** Home route for each role. */
 export function roleHome(role: Role): string {
   switch (role) {
@@ -15,12 +39,10 @@ export function roleHome(role: Role): string {
   }
 }
 
-/** Local date -> YYYY-MM-DD (as expected by the API's `date` query params). */
+/** Clinic-local date -> YYYY-MM-DD (as expected by the API's `date` query params). */
 export function toDateStr(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+  const p = clinicParts(d);
+  return `${p.year}-${p.month}-${p.day}`;
 }
 
 export function todayStr(): string {
@@ -28,7 +50,7 @@ export function todayStr(): string {
 }
 
 export function fmtTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZone: CLINIC_TZ });
 }
 
 export function fmtDate(iso: string): string {
@@ -37,6 +59,7 @@ export function fmtDate(iso: string): string {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
+    timeZone: CLINIC_TZ,
   });
 }
 
@@ -44,10 +67,22 @@ export function fmtDateTime(iso: string): string {
   return `${fmtDate(iso)} · ${fmtTime(iso)}`;
 }
 
-/** "HH:mm" key in local time, used to place blocks on the reception board. */
+/** "HH:mm" key in clinic-local time, used to place blocks on the reception board. */
 export function localTimeKey(iso: string): string {
-  const d = new Date(iso);
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  const p = clinicParts(new Date(iso));
+  return `${p.hour}:${p.minute}`;
+}
+
+/** Hour of day (0-23) in clinic-local time, for a given ISO timestamp. */
+export function clinicHour(iso: string): number {
+  return parseInt(clinicParts(new Date(iso)).hour, 10);
+}
+
+/** Current half-hour-bucket "HH:mm" key in clinic-local time (e.g. "14:03" -> "14:00"). */
+export function nowSlotKey(): string {
+  const p = clinicParts(new Date());
+  const minute = parseInt(p.minute, 10) < 30 ? '00' : '30';
+  return `${p.hour}:${minute}`;
 }
 
 export function statusLabel(status: AppointmentStatus): string {

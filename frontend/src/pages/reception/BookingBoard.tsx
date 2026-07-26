@@ -5,7 +5,7 @@ import { updateAppointment } from '../../api/appointments';
 import { getDoctors } from '../../api/doctors';
 import { getNoShowRisk } from '../../api/ai';
 import { sendReminder } from '../../api/notifications';
-import { fmtTime, getErrorMessage, localTimeKey, statusLabel, todayStr } from '../../utils';
+import { fmtTime, getErrorMessage, localTimeKey, nowSlotKey, statusLabel, todayStr, toDateStr } from '../../utils';
 import Button from '../../components/Button';
 import Spinner from '../../components/Spinner';
 import Modal from '../../components/Modal';
@@ -70,8 +70,7 @@ export default function BookingBoard() {
   // Current-time indicator row (only when viewing today).
   const nowKey = (() => {
     if (date !== todayStr()) return null;
-    const d = new Date();
-    const key = `${String(d.getHours()).padStart(2, '0')}:${d.getMinutes() < 30 ? '00' : '30'}`;
+    const key = nowSlotKey();
     return TIMES.includes(key) ? key : null;
   })();
 
@@ -79,7 +78,7 @@ export default function BookingBoard() {
   const dayAppointments = useMemo(
     () =>
       items.filter(
-        (a) => localDateOf(a.startTime) === date && a.status !== 'cancelled',
+        (a) => toDateStr(new Date(a.startTime)) === date && a.status !== 'cancelled',
       ),
     [items, date],
   );
@@ -353,12 +352,4 @@ function BoardRow({
       })}
     </>
   );
-}
-
-function localDateOf(iso: string): string {
-  const d = new Date(iso);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
 }

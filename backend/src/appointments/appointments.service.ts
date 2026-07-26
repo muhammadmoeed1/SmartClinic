@@ -7,6 +7,7 @@ import { Appointment, User, WaitlistEntry } from '../entities';
 import { AppointmentStatus, Role } from '../common/enums';
 import { JwtUser } from '../common/decorators';
 import { NotificationsService } from '../notifications/notifications.service';
+import { clinicDateStr, clinicDayRange, clinicTime } from '../common/clinic-time';
 import {
   CreateAppointmentDto, JoinWaitlistDto, ListAppointmentsQueryDto, UpdateAppointmentDto,
 } from './dto';
@@ -21,12 +22,6 @@ const ACTIVE_STATUSES = [
   AppointmentStatus.IN_PROGRESS,
   AppointmentStatus.COMPLETED,
 ];
-
-function dayRange(date: string): [Date, Date] {
-  const from = new Date(`${date}T00:00:00`);
-  const to = new Date(`${date}T23:59:59.999`);
-  return [from, to];
-}
 
 @Injectable()
 export class AppointmentsService {
@@ -68,7 +63,7 @@ export class AppointmentsService {
   }
 
   async getSlots(doctorId: string, date: string) {
-    const [from, to] = dayRange(date);
+    const [from, to] = clinicDayRange(date);
     const booked = await this.appointments.find({
       where: {
         doctorId,
@@ -82,8 +77,7 @@ export class AppointmentsService {
     const slots: Array<{ startTime: Date; endTime: Date; available: boolean }> = [];
     for (let hour = DAY_START_HOUR; hour < DAY_END_HOUR; hour++) {
       for (const minute of [0, 30]) {
-        const start = new Date(`${date}T00:00:00`);
-        start.setHours(hour, minute, 0, 0);
+        const start = clinicTime(date, hour, minute);
         const end = new Date(start.getTime() + SLOT_MINUTES * 60000);
         slots.push({
           startTime: start,
@@ -170,7 +164,7 @@ export class AppointmentsService {
     if (query.doctorId) qb.andWhere('a."doctorId" = :did', { did: query.doctorId });
     if (query.status) qb.andWhere('a.status = :status', { status: query.status });
     if (query.date) {
-      const [from, to] = dayRange(query.date);
+      const [from, to] = clinicDayRange(query.date);
       qb.andWhere('a."startTime" BETWEEN :from AND :to', { from, to });
     }
     const rows = await qb.getMany();
@@ -258,7 +252,7 @@ export class AppointmentsService {
     const hoursUntil = (appt.startTime.getTime() - Date.now()) / 3600000;
     if (hoursUntil > 2 || hoursUntil < 0) return;
 
-    const date = appt.startTime.toISOString().slice(0, 10);
+    const date = clinicDateStr(appt.startTime);
     const next = await this.waitlist.findOne({
       where: { doctorId: appt.doctorId, date, notified: false },
       order: { createdAt: 'ASC' },
@@ -277,8 +271,8 @@ export class AppointmentsService {
 
   /** Emit live queue positions to checked-in patients of a doctor (today). */
   private async emitQueuePositions(doctorId: string) {
-    const today = new Date().toISOString().slice(0, 10);
-    const [from, to] = dayRange(today);
+    const today = clinicDateStr(new Date());
+    const [from, to] = clinicDayRange(today);
     const queue = await this.appointments.find({
       where: {
         doctorId,

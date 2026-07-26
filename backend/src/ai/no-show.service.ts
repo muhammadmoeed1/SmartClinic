@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Between, In, Repository } from 'typeorm';
 import { Appointment, DoctorProfile } from '../entities';
 import { AppointmentStatus } from '../common/enums';
+import { clinicDayOfWeek, clinicDayRange, clinicHour } from '../common/clinic-time';
 
 export interface RiskResult {
   appointmentId: string;
@@ -23,8 +24,7 @@ export class NoShowService {
   ) {}
 
   async scoresForDate(date: string): Promise<RiskResult[]> {
-    const from = new Date(`${date}T00:00:00`);
-    const to = new Date(`${date}T23:59:59.999`);
+    const [from, to] = clinicDayRange(date);
     const upcoming = await this.appointments.find({
       where: {
         startTime: Between(from, to),
@@ -95,7 +95,7 @@ export class NoShowService {
     }
 
     // Time of day: first slot and last slots see more no-shows.
-    const hour = appt.startTime.getHours();
+    const hour = clinicHour(appt.startTime);
     if (hour === 9) {
       score += 0.07;
       factors.push('Early-morning slot');
@@ -105,7 +105,7 @@ export class NoShowService {
     }
 
     // Day of week: Mondays and Fridays skew higher.
-    const dow = appt.startTime.getDay();
+    const dow = clinicDayOfWeek(appt.startTime);
     if (dow === 1 || dow === 5) {
       score += 0.05;
       factors.push(dow === 1 ? 'Monday appointment' : 'Friday appointment');

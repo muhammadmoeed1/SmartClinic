@@ -5,7 +5,7 @@ import { useAppointmentsStore } from '../../store/appointments';
 import { useNotificationsStore, notificationText } from '../../store/notifications';
 import { updateAppointment } from '../../api/appointments';
 import type { AppointmentDto } from '../../types';
-import { fmtDateTime, getErrorMessage, hoursUntil } from '../../utils';
+import { clinicHour, fmtDateTime, getErrorMessage, hoursUntil } from '../../utils';
 import { StatusBadge } from '../../components/Badge';
 import Button from '../../components/Button';
 import Spinner from '../../components/Spinner';
@@ -15,7 +15,7 @@ import { IconChat, IconClock } from '../../components/Icons';
 import { toast } from '../../store/toasts';
 
 function greeting(): string {
-  const h = new Date().getHours();
+  const h = clinicHour(new Date().toISOString());
   if (h < 12) return 'Good morning';
   if (h < 18) return 'Good afternoon';
   return 'Good evening';

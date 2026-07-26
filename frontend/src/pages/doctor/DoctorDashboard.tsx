@@ -71,6 +71,7 @@ export default function DoctorDashboard() {
               weekday: 'long',
               day: 'numeric',
               month: 'long',
+              timeZone: 'Asia/Karachi',
             })}
           </p>
         </div>
