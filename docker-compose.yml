@@ -52,7 +52,7 @@ services:
       AI_API_KEY: ${AI_API_KEY:-}
       AI_MODEL: llama-3.3-70b-versatile
       AI_BASE_URL: https://api.groq.com/openai/v1
-      CORS_ORIGIN: http://localhost:5173
+      CORS_ORIGIN: http://localhost:5173,https://smart-clinic-ochre.vercel.app
     ports:
       - "3000:3000"
     # Migrations run automatically via the image's default CMD.
