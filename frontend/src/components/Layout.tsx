@@ -1,5 +1,5 @@
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import type { Role } from '../types';
 import NotificationBell from './NotificationBell';
@@ -9,6 +9,7 @@ import {
   IconDashboard,
   IconFile,
   IconLogout,
+  IconMenu,
   IconPlus,
   IconRoom,
   IconShield,
@@ -62,6 +63,13 @@ const ROLE_LABEL: Record<Role, string> = {
 export default function Layout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [navOpen, setNavOpen] = useState(false);
+
+  // Close the mobile drawer on every navigation.
+  useEffect(() => {
+    setNavOpen(false);
+  }, [location.pathname]);
 
   if (!user) return null;
   const items = NAV[user.role];
@@ -73,7 +81,10 @@ export default function Layout() {
 
   return (
     <div className="layout">
-      <aside className="sidebar">
+      {navOpen && (
+        <div className="sidebar-backdrop" onClick={() => setNavOpen(false)} aria-hidden="true" />
+      )}
+      <aside className={`sidebar ${navOpen ? 'sidebar--open' : ''}`}>
         <div className="sidebar__brand">
           <span className="sidebar__logo">
             <LogoMark size={34} />
@@ -105,7 +116,17 @@ export default function Layout() {
       </aside>
       <div className="main">
         <header className="topbar">
-          <div className="topbar__role">{ROLE_LABEL[user.role]} portal</div>
+          <div className="topbar__left">
+            <button
+              className="icon-btn sidebar-toggle"
+              onClick={() => setNavOpen((o) => !o)}
+              aria-label={navOpen ? 'Close menu' : 'Open menu'}
+              aria-expanded={navOpen}
+            >
+              <IconMenu size={20} />
+            </button>
+            <div className="topbar__role">{ROLE_LABEL[user.role]} portal</div>
+          </div>
           <div className="topbar__right">
             <NotificationBell />
             <div className="topbar__user">

@@ -301,11 +301,22 @@ dd { margin: 0; }
   color: var(--ink);
 }
 
+.topbar__left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
 .topbar__right {
   display: flex;
   align-items: center;
   gap: 14px;
 }
+
+/* Hamburger drawer toggle + backdrop — inert above the phone breakpoint. */
+.sidebar-toggle { display: none; }
+.sidebar-backdrop { display: none; }
 
 .topbar__user {
   display: flex;
@@ -1991,4 +2002,59 @@ textarea.input { resize: vertical; }
   .auth-hero__features { flex-direction: row; flex-wrap: wrap; gap: 12px 22px; }
   .auth-feature__text span { display: none; }
   .auth-side { padding: 28px 16px 44px; }
+}
+
+/* --- Responsive (phones, ≤640px) ------------------------------------------------------------------
+   Below tablet width the icon-only rail wastes too much of a phone's screen, so the sidebar
+   becomes a full off-canvas drawer instead, toggled by a hamburger button in the topbar. */
+
+@media (max-width: 640px) {
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 250px;
+    height: 100vh;
+    transform: translateX(-100%);
+    transition: transform var(--dur-slow) var(--ease);
+    z-index: 200;
+  }
+  .sidebar--open { transform: translateX(0); box-shadow: var(--elev-3); }
+  .sidebar__name, .sidebar__label, .sidebar__role { display: inline; }
+  .sidebar__role { display: inline-flex; }
+  .sidebar__brand { justify-content: flex-start; padding: 22px 20px 16px; }
+  .sidebar__link { justify-content: flex-start; padding: 10px 13px; }
+  .sidebar__link::before { left: -12px; }
+
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(14, 26, 43, 0.42);
+    z-index: 190;
+    animation: overlay-in var(--dur) var(--ease);
+  }
+
+  .sidebar-toggle { display: inline-flex; }
+
+  .topbar { padding: 10px 12px; gap: 8px; }
+  .topbar__role { font-size: 0.92rem; }
+  .content { padding: 16px 12px 32px; }
+  .page-header h2 { font-size: 1.2rem; }
+
+  .card { padding: 16px; }
+  .wizard-step { font-size: 0.72rem; }
+  .wizard-step__num { width: 24px; height: 24px; }
+
+  /* Notification dropdown: fixed 340px overflows a phone viewport anchored at the topbar's edge. */
+  .bell__dropdown {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    top: calc(var(--topbar-h) + 6px);
+    width: auto;
+  }
+
+  .board { min-width: 560px; }
+  .board__doctor { min-width: 0; }
 }
