@@ -9,16 +9,42 @@ import { fmtTime, getErrorMessage, localTimeKey, nowSlotKey, statusLabel, todayS
 import Button from '../../components/Button';
 import Spinner from '../../components/Spinner';
 import Modal from '../../components/Modal';
+import EmptyState from '../../components/EmptyState';
 import { StatusBadge } from '../../components/Badge';
 import { IconWarning } from '../../components/Icons';
 import { toast } from '../../store/toasts';
 
-/** 30-min rows 09:00–17:00. */
-const TIMES: string[] = Array.from({ length: 16 }, (_, i) => {
-  const h = 9 + Math.floor(i / 2);
-  const m = i % 2 === 0 ? '00' : '30';
-  return `${String(h).padStart(2, '0')}:${m}`;
-});
+/** New appointments can only be booked 9 AM–5 PM — matches the backend's
+ * DAY_START_HOUR/DAY_END_HOUR. The board still displays the full day (see
+ * TIME_SECTIONS below) so an existing appointment is never invisible, but
+ * only slots inside clinic hours accept a drag-to-reschedule drop. */
+const CLINIC_START_HOUR = 9;
+const CLINIC_END_HOUR = 17;
+
+interface TimeSection {
+  key: string;
+  label: string;
+  startHour: number;
+  endHour: number; // exclusive
+}
+
+/** Full 24h split into four sections so an appointment booked at any hour
+ * (e.g. a walk-in logged outside standard hours) is always shown somewhere,
+ * instead of only ever rendering the 9-to-5 clinic window. */
+const TIME_SECTIONS: TimeSection[] = [
+  { key: 'night', label: 'Night · 12–6 AM', startHour: 0, endHour: 6 },
+  { key: 'morning', label: 'Morning · 6 AM–12 PM', startHour: 6, endHour: 12 },
+  { key: 'afternoon', label: 'Afternoon · 12–6 PM', startHour: 12, endHour: 18 },
+  { key: 'evening', label: 'Evening · 6 PM–12 AM', startHour: 18, endHour: 24 },
+];
+
+function sectionTimes(section: TimeSection): string[] {
+  const times: string[] = [];
+  for (let h = section.startHour; h < section.endHour; h++) {
+    times.push(`${String(h).padStart(2, '0')}:00`, `${String(h).padStart(2, '0')}:30`);
+  }
+  return times;
+}
 
 const RISK_THRESHOLD = 0.65;
 
@@ -33,6 +59,7 @@ export default function BookingBoard() {
   const { items, loading, error, fetch } = useAppointmentsStore();
   const [doctors, setDoctors] = useState<DoctorDto[] | null>(null);
   const [doctorsError, setDoctorsError] = useState<string | null>(null);
+  const [doctorId, setDoctorId] = useState('');
   const [risks, setRisks] = useState<Record<string, NoShowRiskDto>>({});
   const [pendingMove, setPendingMove] = useState<PendingMove | null>(null);
   const [moveSaving, setMoveSaving] = useState(false);
@@ -46,8 +73,8 @@ export default function BookingBoard() {
   }, []);
 
   useEffect(() => {
-    void fetch({ date });
-  }, [fetch, date]);
+    void fetch({ date, doctorId: doctorId || undefined });
+  }, [fetch, date, doctorId]);
 
   // No-show risk for the day (non-blocking if it fails).
   useEffect(() => {
@@ -67,39 +94,34 @@ export default function BookingBoard() {
     };
   }, [date]);
 
-  // Current-time indicator row (only when viewing today).
-  const nowKey = (() => {
-    if (date !== todayStr()) return null;
-    const key = nowSlotKey();
-    return TIMES.includes(key) ? key : null;
-  })();
+  const selectedDoctor = doctors?.find((d) => d.id === doctorId) ?? null;
 
   // Live board: socket appointment.updated/checkin events upsert into the store.
   const dayAppointments = useMemo(
     () =>
       items.filter(
-        (a) => toDateStr(new Date(a.startTime)) === date && a.status !== 'cancelled',
+        (a) => a.doctorId === doctorId && toDateStr(new Date(a.startTime)) === date && a.status !== 'cancelled',
       ),
-    [items, date],
+    [items, doctorId, date],
   );
 
-  const byCell = useMemo(() => {
+  const byTime = useMemo(() => {
     const map = new Map<string, AppointmentDto>();
-    for (const a of dayAppointments) {
-      map.set(`${a.doctorId}|${localTimeKey(a.startTime)}`, a);
-    }
+    for (const a of dayAppointments) map.set(localTimeKey(a.startTime), a);
     return map;
   }, [dayAppointments]);
 
+  const nowKey = date === todayStr() ? nowSlotKey() : null;
+
   const detailLive = detail ? (items.find((a) => a.id === detail.id) ?? detail) : null;
 
-  const onDrop = (e: DragEvent, doctorId: string, time: string) => {
+  const onDrop = (e: DragEvent, time: string) => {
     e.preventDefault();
     const id = e.dataTransfer.getData('text/plain');
     setDragId(null);
     const appt = items.find((a) => a.id === id);
     if (!appt || appt.doctorId !== doctorId) return;
-    if (byCell.has(`${doctorId}|${time}`)) return;
+    if (byTime.has(time)) return;
     const newStartIso = new Date(`${date}T${time}:00`).toISOString();
     if (newStartIso === appt.startTime) return;
     setPendingMove({ appointment: appt, time, newStartIso });
@@ -150,55 +172,85 @@ export default function BookingBoard() {
     }
   };
 
+  const specialtyGroups = useMemo(() => {
+    if (!doctors) return [];
+    const groups = new Map<string, DoctorDto[]>();
+    for (const d of doctors) {
+      if (!groups.has(d.specialty)) groups.set(d.specialty, []);
+      groups.get(d.specialty)!.push(d);
+    }
+    return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
+  }, [doctors]);
+
   return (
     <div className="page page--full">
       <div className="page-header">
         <div>
           <h2>Booking board</h2>
           <p className="page-subtitle">
-            Live daily calendar — drag a scheduled appointment to reschedule it (same doctor).
+            Pick a doctor to see their day — drag a scheduled appointment onto a free clinic-hours slot to reschedule it.
           </p>
         </div>
-        <input
-          className="input"
-          type="date"
-          value={date}
-          onChange={(e) => setDate(e.target.value)}
-        />
+        <div className="board-controls">
+          <select
+            className="input"
+            value={doctorId}
+            onChange={(e) => setDoctorId(e.target.value)}
+            disabled={!doctors}
+          >
+            <option value="">Select a doctor…</option>
+            {specialtyGroups.map(([specialty, docs]) => (
+              <optgroup key={specialty} label={specialty}>
+                {docs.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.fullName}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+          <input
+            className="input"
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+          />
+        </div>
       </div>
 
       {doctorsError && <p className="inline-error">{doctorsError}</p>}
       {error && <p className="inline-error">{error}</p>}
-      {(loading || !doctors) && !doctorsError && <Spinner block label="Loading board…" />}
 
-      {doctors && !loading && (
-        <div className="board-scroll">
-          <div
-            className="board"
-            style={{ gridTemplateColumns: `72px repeat(${doctors.length}, minmax(150px, 1fr))` }}
-          >
-            <div className="board__corner" />
-            {doctors.map((d) => (
-              <div key={d.id} className="board__doctor">
-                <strong>{d.fullName}</strong>
-                <span className="muted">{d.specialty}</span>
-              </div>
-            ))}
-            {TIMES.map((time) => (
-              <BoardRow
-                key={time}
-                time={time}
-                isNow={time === nowKey}
-                doctors={doctors}
-                byCell={byCell}
-                risks={risks}
-                dragId={dragId}
-                setDragId={setDragId}
-                onDrop={onDrop}
-                onOpen={setDetail}
-              />
-            ))}
+      {!doctorsError && !doctors && <Spinner block label="Loading doctors…" />}
+
+      {doctors && !doctorId && (
+        <EmptyState
+          title="Select a doctor"
+          message="Choose a doctor above to see their booking board for the selected day."
+        />
+      )}
+
+      {doctorId && loading && <Spinner block label="Loading board…" />}
+
+      {doctorId && !loading && selectedDoctor && (
+        <div className="board-single">
+          <div className="board-single__header">
+            <strong>{selectedDoctor.fullName}</strong>
+            <span className="muted">{selectedDoctor.specialty}</span>
           </div>
+          {TIME_SECTIONS.map((section) => (
+            <BoardSection
+              key={section.key}
+              section={section}
+              nowKey={nowKey}
+              byTime={byTime}
+              risks={risks}
+              dragId={dragId}
+              setDragId={setDragId}
+              onDrop={onDrop}
+              onOpen={setDetail}
+            />
+          ))}
         </div>
       )}
 
@@ -278,12 +330,65 @@ export default function BookingBoard() {
 
 // ---------------------------------------------------------------------------
 
+function BoardSection({
+  section,
+  nowKey,
+  byTime,
+  risks,
+  dragId,
+  setDragId,
+  onDrop,
+  onOpen,
+}: {
+  section: TimeSection;
+  nowKey: string | null;
+  byTime: Map<string, AppointmentDto>;
+  risks: Record<string, NoShowRiskDto>;
+  dragId: string | null;
+  setDragId: (id: string | null) => void;
+  onDrop: (e: DragEvent, time: string) => void;
+  onOpen: (a: AppointmentDto) => void;
+}) {
+  const times = useMemo(() => sectionTimes(section), [section]);
+  const appointmentCount = times.filter((t) => byTime.has(t)).length;
+  const containsNow = nowKey !== null && times.includes(nowKey);
+  // Open by default when there's something to see or "now" falls in this section.
+  const defaultOpen = appointmentCount > 0 || containsNow;
+
+  return (
+    <details className="board-section" open={defaultOpen}>
+      <summary className="board-section__summary">
+        <span>{section.label}</span>
+        <span className="board-section__count">
+          {appointmentCount > 0 ? `${appointmentCount} booked` : 'No appointments'}
+        </span>
+      </summary>
+      <div className="board-section__rows">
+        {times.map((time) => (
+          <BoardRow
+            key={time}
+            time={time}
+            isNow={time === nowKey}
+            appt={byTime.get(time)}
+            bookable={parseInt(time.slice(0, 2), 10) >= CLINIC_START_HOUR && parseInt(time.slice(0, 2), 10) < CLINIC_END_HOUR}
+            risk={byTime.get(time) ? risks[byTime.get(time)!.id] : undefined}
+            dragId={dragId}
+            setDragId={setDragId}
+            onDrop={onDrop}
+            onOpen={onOpen}
+          />
+        ))}
+      </div>
+    </details>
+  );
+}
+
 function BoardRow({
   time,
   isNow,
-  doctors,
-  byCell,
-  risks,
+  appt,
+  bookable,
+  risk,
   dragId,
   setDragId,
   onDrop,
@@ -291,65 +396,59 @@ function BoardRow({
 }: {
   time: string;
   isNow: boolean;
-  doctors: DoctorDto[];
-  byCell: Map<string, AppointmentDto>;
-  risks: Record<string, NoShowRiskDto>;
+  appt: AppointmentDto | undefined;
+  bookable: boolean;
+  risk: NoShowRiskDto | undefined;
   dragId: string | null;
   setDragId: (id: string | null) => void;
-  onDrop: (e: DragEvent, doctorId: string, time: string) => void;
+  onDrop: (e: DragEvent, time: string) => void;
   onOpen: (a: AppointmentDto) => void;
 }) {
-  const nowCls = isNow ? ' board__cell--now' : '';
+  const highRisk = risk && risk.score > RISK_THRESHOLD;
+  const nowCls = isNow ? ' board-row--now' : '';
+
   return (
-    <>
-      <div className={`board__time${isNow ? ' board__time--now' : ''}`}>{time}</div>
-      {doctors.map((d) => {
-        const appt = byCell.get(`${d.id}|${time}`);
-        if (appt) {
-          const risk = risks[appt.id];
-          const highRisk = risk && risk.score > RISK_THRESHOLD;
-          return (
-            <div key={d.id} className={`board__cell${nowCls}`}>
-              <div
-                className={`board-block board-block--${appt.status} ${
-                  dragId === appt.id ? 'board-block--dragging' : ''
-                }`}
-                draggable={appt.status === 'scheduled'}
-                onDragStart={(e) => {
-                  e.dataTransfer.setData('text/plain', appt.id);
-                  e.dataTransfer.effectAllowed = 'move';
-                  setDragId(appt.id);
-                }}
-                onDragEnd={() => setDragId(null)}
-                onClick={() => onOpen(appt)}
-                title={`${appt.patient.fullName} · ${statusLabel(appt.status)}`}
-              >
-                <span className="board-block__name">{appt.patient.fullName}</span>
-                <span className="board-block__status">{statusLabel(appt.status)}</span>
-                {highRisk && (
-                  <span
-                    className="board-block__risk"
-                    title={`No-show risk ${(risk.score * 100).toFixed(0)}%\n${risk.factors.join('\n')}`}
-                  >
-                    ⚠ {(risk.score * 100).toFixed(0)}%
-                  </span>
-                )}
-              </div>
-            </div>
-          );
-        }
-        const droppable = dragId !== null;
-        return (
+    <div className={`board-row${nowCls}${!bookable ? ' board-row--offhours' : ''}`}>
+      <div className="board-row__time">{time}</div>
+      <div className="board-row__cell">
+        {appt ? (
           <div
-            key={d.id}
-            className={`board__cell board__cell--empty${nowCls} ${droppable ? 'board__cell--target' : ''}`}
+            className={`board-block board-block--${appt.status} ${
+              dragId === appt.id ? 'board-block--dragging' : ''
+            }`}
+            draggable={appt.status === 'scheduled'}
+            onDragStart={(e) => {
+              e.dataTransfer.setData('text/plain', appt.id);
+              e.dataTransfer.effectAllowed = 'move';
+              setDragId(appt.id);
+            }}
+            onDragEnd={() => setDragId(null)}
+            onClick={() => onOpen(appt)}
+            title={`${appt.patient.fullName} · ${statusLabel(appt.status)}`}
+          >
+            <span className="board-block__name">{appt.patient.fullName}</span>
+            <span className="board-block__status">{statusLabel(appt.status)}</span>
+            {highRisk && (
+              <span
+                className="board-block__risk"
+                title={`No-show risk ${(risk.score * 100).toFixed(0)}%\n${risk.factors.join('\n')}`}
+              >
+                ⚠ {(risk.score * 100).toFixed(0)}%
+              </span>
+            )}
+          </div>
+        ) : bookable ? (
+          <div
+            className={`board__cell--empty${dragId ? ' board__cell--target' : ''}`}
             onDragOver={(e) => {
               if (dragId) e.preventDefault();
             }}
-            onDrop={(e) => onDrop(e, d.id, time)}
+            onDrop={(e) => onDrop(e, time)}
           />
-        );
-      })}
-    </>
+        ) : (
+          <div className="board__cell--offhours" title="Outside clinic hours — not bookable" />
+        )}
+      </div>
+    </div>
   );
 }

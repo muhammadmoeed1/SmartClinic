@@ -1699,12 +1699,23 @@ textarea.input { resize: vertical; }
 
 /* --- Reception board ---------------------------------------------------------------------------------- */
 
-.board-scroll { overflow-x: auto; padding-bottom: 8px; }
+.board-controls { display: flex; gap: 10px; flex-wrap: wrap; }
+.board-controls .input { min-width: 200px; }
 
-.board {
-  display: grid;
-  gap: 0;
-  min-width: 720px;
+.board-single {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.board-single__header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 1.02rem;
+}
+
+.board-section {
   background: var(--surface);
   border: 1px solid var(--line-soft);
   border-radius: var(--radius);
@@ -1712,54 +1723,60 @@ textarea.input { resize: vertical; }
   overflow: hidden;
 }
 
-.board__corner, .board__doctor {
-  position: sticky;
-  top: var(--topbar-h);
-  background: #f3f7fa;
-  border-bottom: 2px solid var(--line);
-  z-index: 10;
-}
-
-.board__doctor {
+.board-section__summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 13px 18px;
   display: flex;
-  flex-direction: column;
-  gap: 1px;
-  padding: 10px 12px;
-  border-left: 1px solid var(--line-soft);
-  font-size: 0.9rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-weight: 700;
+  background: #f3f7fa;
+  border-bottom: 1px solid var(--line-soft);
 }
-.board__doctor strong { letter-spacing: -0.01em; }
-.board__doctor .muted { font-size: 0.76rem; }
+.board-section__summary::-webkit-details-marker { display: none; }
 
-.board__time {
+.board-section__count { font-size: 0.78rem; font-weight: 600; color: var(--muted); }
+
+.board-section__rows { display: flex; flex-direction: column; }
+
+.board-row {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  border-bottom: 1px solid var(--line-soft);
+  min-height: 48px;
+}
+.board-row:last-child { border-bottom: 0; }
+
+.board-row__time {
   padding: 8px 10px;
   font-size: 0.76rem;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: var(--muted);
-  border-bottom: 1px solid var(--line-soft);
   background: #fafcfd;
+  border-right: 1px solid var(--line-soft);
   display: flex;
   align-items: flex-start;
 }
 
-.board__cell {
-  border-bottom: 1px solid var(--line-soft);
-  border-left: 1px solid var(--line-soft);
-  min-height: 48px;
-  padding: 3px;
-}
+.board-row__cell { padding: 3px; min-height: 48px; }
 
-/* current-time indicator (today only): teal line across the active row */
-.board__time--now,
-.board__cell--now {
+/* current-time indicator (today only): rose line across the active row */
+.board-row--now {
   position: relative;
   box-shadow: inset 0 2px 0 var(--rose-600);
 }
-.board__time--now { color: var(--rose-600); font-weight: 700; }
+.board-row--now .board-row__time { color: var(--rose-600); font-weight: 700; }
 
+/* outside 9am-5pm clinic hours: shown for visibility, never a drop target */
+.board-row--offhours .board-row__time { opacity: 0.55; }
+
+.board__cell--empty, .board__cell--offhours { height: 100%; min-height: 42px; border-radius: 8px; }
 .board__cell--target { background: repeating-linear-gradient(45deg, transparent 0 8px, rgba(13, 148, 136, 0.06) 8px 16px); }
 .board__cell--empty:hover { background: var(--blue-50); }
+.board__cell--offhours { background: repeating-linear-gradient(45deg, transparent 0 8px, rgba(107, 122, 140, 0.05) 8px 16px); }
 
 .board-block {
   display: flex;
@@ -2055,6 +2072,7 @@ textarea.input { resize: vertical; }
     width: auto;
   }
 
-  .board { min-width: 560px; }
-  .board__doctor { min-width: 0; }
+  .board-controls { flex-direction: column; align-items: stretch; }
+  .board-controls .input { min-width: 0; width: 100%; }
+  .board-row { grid-template-columns: 56px 1fr; }
 }
