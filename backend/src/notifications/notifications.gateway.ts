@@ -4,6 +4,7 @@ import {
 import { Injectable, Logger } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
+import { cleanEnv } from '../common/clean-env';
 
 /**
  * Socket.io gateway. Clients connect with `auth: { token: <accessToken> }`.
@@ -12,7 +13,7 @@ import { JwtService } from '@nestjs/jwt';
  */
 @Injectable()
 @WebSocketGateway({
-  cors: { origin: (process.env.CORS_ORIGIN || 'http://localhost:5173').split(',') },
+  cors: { origin: cleanEnv(process.env.CORS_ORIGIN || 'http://localhost:5173').split(',').map(cleanEnv) },
 })
 export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
@@ -28,7 +29,7 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
         client.handshake.auth?.token ||
         (client.handshake.headers.authorization || '').replace('Bearer ', '');
       const payload = await this.jwt.verifyAsync(token, {
-        secret: (process.env.JWT_ACCESS_SECRET || 'dev-access-secret-change-me').trim(),
+        secret: cleanEnv(process.env.JWT_ACCESS_SECRET || 'dev-access-secret-change-me'),
       });
       client.data.userId = payload.sub;
       client.data.role = payload.role;

@@ -5,6 +5,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { Logger } from 'nestjs-pino';
 import * as Sentry from '@sentry/node';
 import { AppModule } from './app.module';
+import { cleanEnv } from './common/clean-env';
 
 if (process.env.SENTRY_DSN) {
   Sentry.init({ dsn: process.env.SENTRY_DSN, tracesSampleRate: 0.1 });
@@ -17,7 +18,7 @@ async function bootstrap() {
   app.useLogger(app.get(Logger));
 
   app.enableCors({
-    origin: (process.env.CORS_ORIGIN || 'http://localhost:5173').split(','),
+    origin: cleanEnv(process.env.CORS_ORIGIN || 'http://localhost:5173').split(',').map(cleanEnv),
     credentials: true,
   });
 
@@ -34,7 +35,7 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api', app, document);
 
-  const rawPort = (process.env.PORT || '3000').trim().replace(/^["']|["']$/g, '');
+  const rawPort = cleanEnv(process.env.PORT || '3000');
   const parsedPort = parseInt(rawPort, 10);
   const port = Number.isInteger(parsedPort) && parsedPort > 0 && parsedPort < 65536
     ? parsedPort

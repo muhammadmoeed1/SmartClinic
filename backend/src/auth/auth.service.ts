@@ -7,6 +7,7 @@ import { Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import { User } from '../entities';
 import { Role } from '../common/enums';
+import { cleanEnv } from '../common/clean-env';
 import { LoginDto, RegisterDto } from './dto';
 
 export interface TokenPair {
@@ -24,12 +25,12 @@ export class AuthService {
   private async issueTokens(user: User): Promise<TokenPair> {
     const payload = { sub: user.id, email: user.email, role: user.role };
     const accessToken = await this.jwt.signAsync(payload, {
-      secret: (process.env.JWT_ACCESS_SECRET || 'dev-access-secret-change-me').trim(),
-      expiresIn: (process.env.JWT_ACCESS_TTL || '900s').trim(),
+      secret: cleanEnv(process.env.JWT_ACCESS_SECRET || 'dev-access-secret-change-me'),
+      expiresIn: cleanEnv(process.env.JWT_ACCESS_TTL || '900s'),
     });
     const refreshToken = await this.jwt.signAsync(payload, {
-      secret: (process.env.JWT_REFRESH_SECRET || 'dev-refresh-secret-change-me').trim(),
-      expiresIn: (process.env.JWT_REFRESH_TTL || '7d').trim(),
+      secret: cleanEnv(process.env.JWT_REFRESH_SECRET || 'dev-refresh-secret-change-me'),
+      expiresIn: cleanEnv(process.env.JWT_REFRESH_TTL || '7d'),
     });
     await this.users.update(user.id, {
       refreshTokenHash: await bcrypt.hash(refreshToken, 10),
@@ -82,7 +83,7 @@ export class AuthService {
     let payload: { sub: string };
     try {
       payload = await this.jwt.verifyAsync(refreshToken, {
-        secret: (process.env.JWT_REFRESH_SECRET || 'dev-refresh-secret-change-me').trim(),
+        secret: cleanEnv(process.env.JWT_REFRESH_SECRET || 'dev-refresh-secret-change-me'),
       });
     } catch {
       throw new UnauthorizedException('Invalid refresh token');
