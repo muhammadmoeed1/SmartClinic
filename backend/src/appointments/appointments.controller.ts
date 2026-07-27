@@ -36,6 +36,20 @@ export class AppointmentsController {
     return this.appointments.joinWaitlist(user, dto);
   }
 
+  @Get('waitlist')
+  @Roles(Role.RECEPTIONIST, Role.ADMIN)
+  @ApiOperation({ summary: 'List active waitlist entries (optionally by doctor/date)' })
+  listWaitlist(@Query('doctorId') doctorId?: string, @Query('date') date?: string) {
+    return this.appointments.listWaitlist(doctorId, date);
+  }
+
+  @Post('waitlist/:id/notify')
+  @Roles(Role.RECEPTIONIST, Role.ADMIN)
+  @ApiOperation({ summary: 'Manually notify a waitlisted patient' })
+  notifyWaitlistEntry(@Param('id', ParseUUIDPipe) id: string) {
+    return this.appointments.notifyWaitlistEntry(id);
+  }
+
   @Get()
   @ApiOperation({ summary: 'List appointments (role-scoped)' })
   list(@CurrentUser() user: JwtUser, @Query() query: ListAppointmentsQueryDto) {

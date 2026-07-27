@@ -4,14 +4,18 @@ import { useAuth } from '../context/AuthContext';
 import type { Role } from '../types';
 import NotificationBell from './NotificationBell';
 import {
+  IconActivity,
   IconCalendar,
   IconChart,
+  IconClock,
   IconDashboard,
   IconFile,
   IconLogout,
   IconMenu,
   IconPlus,
   IconRoom,
+  IconSearch,
+  IconSettings,
   IconShield,
   IconStethoscope,
   LogoMark,
@@ -29,20 +33,27 @@ const NAV: Record<Role, NavItem[]> = {
     { to: '/patient', label: 'Dashboard', icon: <IconDashboard />, end: true },
     { to: '/patient/book', label: 'Book appointment', icon: <IconPlus /> },
     { to: '/patient/records', label: 'My records', icon: <IconFile /> },
+    { to: '/patient/settings', label: 'Account settings', icon: <IconSettings /> },
   ],
   doctor: [
     { to: '/doctor', label: 'Today', icon: <IconDashboard />, end: true },
+    { to: '/doctor/patients', label: 'My patients', icon: <IconSearch /> },
     { to: '/doctor/records', label: 'Patient records', icon: <IconFile /> },
+    { to: '/doctor/settings', label: 'Account settings', icon: <IconSettings /> },
   ],
   receptionist: [
     { to: '/reception', label: 'Booking board', icon: <IconCalendar />, end: true },
     { to: '/reception/walkin', label: 'Book for patient', icon: <IconPlus /> },
     { to: '/reception/preauth', label: 'Pre-auth tracker', icon: <IconShield /> },
+    { to: '/reception/waitlist', label: 'Waitlist', icon: <IconClock /> },
+    { to: '/reception/settings', label: 'Account settings', icon: <IconSettings /> },
   ],
   admin: [
     { to: '/admin', label: 'Analytics', icon: <IconChart />, end: true },
     { to: '/admin/doctors', label: 'Doctors', icon: <IconStethoscope /> },
     { to: '/admin/rooms', label: 'Rooms', icon: <IconRoom /> },
+    { to: '/admin/health', label: 'System health', icon: <IconActivity /> },
+    { to: '/admin/settings', label: 'Account settings', icon: <IconSettings /> },
   ],
 };
 

@@ -78,6 +78,14 @@ export interface WaitlistEntryDto {
   position: number;
 }
 
+export interface WaitlistListEntryDto {
+  id: string;
+  date: string;
+  createdAt: string;
+  patient: { id: string; fullName: string; phone: string | null };
+  doctor: { id: string; fullName: string; specialty?: string };
+}
+
 // --- Medical records --------------------------------------------------------
 
 export interface IcdCode {
@@ -105,6 +113,9 @@ export interface VisitRecordDto {
   finalized: boolean;
   createdAt: string;
   updatedAt: string;
+  patient?: { id: string; fullName: string };
+  doctor?: { id: string; fullName: string; specialty?: string };
+  appointment?: { startTime: string; status: AppointmentStatus };
   files: RecordFileDto[];
 }
 
@@ -222,6 +233,46 @@ export interface InsuranceStatsRow {
   rejected: number;
   approvalRate: number;
   avgTurnaroundHours: number;
+}
+
+// --- AI observability ---------------------------------------------------------
+
+export interface LlmFeatureStats {
+  feature: string;
+  calls: number;
+  successRate: number;
+  avgLatencyMs: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+}
+
+export interface RagCacheStats {
+  hits: number;
+  misses: number;
+  hitRate: number;
+}
+
+export interface ObservabilityResponse {
+  llmCalls: LlmFeatureStats[];
+  ragCache: RagCacheStats;
+}
+
+// --- System health ------------------------------------------------------------
+
+export interface HealthResponse {
+  status: string;
+  db: string;
+  uptime: number;
+  timestamp: string;
+}
+
+export interface SystemHealthSummary {
+  uptimeSeconds: number;
+  nodeVersion: string;
+  totalRequests: number;
+  memoryMb: number;
+  cpuSeconds: number;
+  eventLoopLagMs: number;
 }
 
 // --- Errors -----------------------------------------------------------------

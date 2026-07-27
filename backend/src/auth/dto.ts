@@ -39,3 +39,22 @@ export class RefreshDto {
   @IsNotEmpty()
   refreshToken: string;
 }
+
+export class UpdateProfileDto {
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  phone?: string;
+}
+
+export class ChangePasswordDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  currentPassword: string;
+
+  @ApiProperty({ minLength: 8 })
+  @IsString()
+  @MinLength(8)
+  newPassword: string;
+}

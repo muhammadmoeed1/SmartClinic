@@ -1,13 +1,13 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { Appointment, LabFile, PreAuth, VisitRecord } from '../entities';
+import { Appointment, DoctorProfile, LabFile, PreAuth, VisitRecord } from '../entities';
 import { EmbeddingModule } from '../embedding/embedding.module';
 import { RecordsController } from './records.controller';
 import { RecordsService } from './records.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([VisitRecord, Appointment, PreAuth, LabFile]),
+    TypeOrmModule.forFeature([VisitRecord, Appointment, PreAuth, LabFile, DoctorProfile]),
     EmbeddingModule,
   ],
   controllers: [RecordsController],

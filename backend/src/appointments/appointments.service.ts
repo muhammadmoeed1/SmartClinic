@@ -166,6 +166,9 @@ export class AppointmentsService {
     if (query.date) {
       const [from, to] = clinicDayRange(query.date);
       qb.andWhere('a."startTime" BETWEEN :from AND :to', { from, to });
+    } else if (query.from) {
+      const [from] = clinicDayRange(query.from);
+      qb.andWhere('a."startTime" >= :from', { from });
     }
     const rows = await qb.getMany();
     return rows.map((r) => this.toDto(r));
@@ -300,5 +303,42 @@ export class AppointmentsService {
       where: { doctorId: dto.doctorId, date: entry.date, notified: false },
     });
     return { id: entry.id, doctorId: entry.doctorId, date: entry.date, position };
+  }
+
+  /** Active (not yet notified) waitlist entries, for the receptionist waitlist view. */
+  async listWaitlist(doctorId?: string, date?: string) {
+    const qb = this.waitlist
+      .createQueryBuilder('w')
+      .leftJoinAndSelect('w.patient', 'patient')
+      .leftJoinAndSelect('w.doctor', 'doctor')
+      .leftJoinAndSelect('doctor.doctorProfile', 'profile')
+      .where('w.notified = false')
+      .orderBy('w.date', 'ASC')
+      .addOrderBy('w.createdAt', 'ASC');
+    if (doctorId) qb.andWhere('w."doctorId" = :doctorId', { doctorId });
+    if (date) qb.andWhere('w.date = :date', { date });
+    const rows = await qb.getMany();
+    return rows.map((w) => ({
+      id: w.id,
+      date: w.date,
+      createdAt: w.createdAt,
+      patient: { id: w.patient.id, fullName: w.patient.fullName, phone: w.patient.phone },
+      doctor: { id: w.doctor.id, fullName: w.doctor.fullName, specialty: w.doctor.doctorProfile?.specialty },
+    }));
+  }
+
+  /** Manually notify a waitlisted patient that a slot may be available. */
+  async notifyWaitlistEntry(id: string) {
+    const entry = await this.waitlist.findOne({ where: { id }, relations: { doctor: true } });
+    if (!entry) throw new NotFoundException('Waitlist entry not found');
+    await this.notifications.notify(entry.patientId, 'waitlist.slot_available', {
+      doctorId: entry.doctorId,
+      doctorName: entry.doctor?.fullName,
+      date: entry.date,
+      message: 'A slot may be available — book now to claim it.',
+    });
+    entry.notified = true;
+    await this.waitlist.save(entry);
+    return { success: true };
   }
 }

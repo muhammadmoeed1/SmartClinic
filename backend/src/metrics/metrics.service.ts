@@ -35,4 +35,35 @@ export class MetricsService implements OnModuleInit {
   get contentType(): string {
     return this.registry.contentType;
   }
+
+  /** Small JSON summary of key metrics, for the admin system-health panel
+   * (the raw /metrics endpoint is Prometheus text format, not meant for
+   * a UI to parse). */
+  async summary() {
+    return {
+      uptimeSeconds: Math.round(process.uptime()),
+      nodeVersion: process.version,
+      totalRequests: await this.sumMetric('http_requests_total'),
+      memoryMb: Math.round((await this.gaugeValue('process_resident_memory_bytes')) / 1024 / 1024),
+      cpuSeconds: Math.round(
+        (await this.gaugeValue('process_cpu_user_seconds_total')) +
+          (await this.gaugeValue('process_cpu_system_seconds_total')),
+      ),
+      eventLoopLagMs: Math.round((await this.gaugeValue('nodejs_eventloop_lag_seconds')) * 1000),
+    };
+  }
+
+  private async sumMetric(name: string): Promise<number> {
+    const metric = this.registry.getSingleMetric(name);
+    if (!metric) return 0;
+    const data = await metric.get();
+    return data.values.reduce((sum, v) => sum + v.value, 0);
+  }
+
+  private async gaugeValue(name: string): Promise<number> {
+    const metric = this.registry.getSingleMetric(name);
+    if (!metric) return 0;
+    const data = await metric.get();
+    return data.values[0]?.value ?? 0;
+  }
 }

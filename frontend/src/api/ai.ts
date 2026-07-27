@@ -3,6 +3,7 @@ import type {
   IntakeMessageResponse,
   IntakeStartResponse,
   NoShowRiskDto,
+  ObservabilityResponse,
   RecommendResponse,
   SoapFormatResponse,
   TriageResponse,
@@ -99,5 +100,12 @@ export async function soapFormat(rawNotes: string): Promise<SoapFormatResponse> 
 
 export async function getNoShowRisk(date: string): Promise<NoShowRiskDto[]> {
   const res = await client.get<NoShowRiskDto[]>('/ai/no-show-risk', { params: { date } });
+  return res.data;
+}
+
+export async function getObservability(sinceHours?: number): Promise<ObservabilityResponse> {
+  const res = await client.get<ObservabilityResponse>('/ai/observability', {
+    params: sinceHours ? { sinceHours } : {},
+  });
   return res.data;
 }

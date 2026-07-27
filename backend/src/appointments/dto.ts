@@ -54,6 +54,11 @@ export class ListAppointmentsQueryDto {
   @Matches(DATE_RE, { message: 'date must be YYYY-MM-DD' })
   date?: string;
 
+  @ApiProperty({ required: false, description: 'Open-ended range: all appointments on/after this date' })
+  @IsOptional()
+  @Matches(DATE_RE, { message: 'from must be YYYY-MM-DD' })
+  from?: string;
+
   @ApiProperty({ required: false, enum: AppointmentStatus })
   @IsOptional()
   @IsEnum(AppointmentStatus)

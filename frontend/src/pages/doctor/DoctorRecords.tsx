@@ -9,6 +9,12 @@ import RecordDetail from '../../components/RecordDetail';
 import Badge from '../../components/Badge';
 import Button from '../../components/Button';
 
+interface PatientGroup {
+  patientId: string;
+  patientName: string;
+  records: VisitRecordDto[];
+}
+
 export default function DoctorRecords() {
   const [records, setRecords] = useState<VisitRecordDto[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -29,11 +35,25 @@ export default function DoctorRecords() {
     if (!q) return records;
     return records.filter(
       (r) =>
-        r.patientId.toLowerCase().includes(q) ||
-        r.appointmentId.toLowerCase().includes(q) ||
-        r.icdCodes.some((c) => c.code.toLowerCase().includes(q)),
+        (r.patient?.fullName ?? '').toLowerCase().includes(q) ||
+        r.icdCodes.some((c) => c.code.toLowerCase().includes(q) || c.description.toLowerCase().includes(q)),
     );
   }, [records, filter]);
+
+  const groups = useMemo<PatientGroup[]>(() => {
+    const map = new Map<string, VisitRecordDto[]>();
+    for (const r of filtered) {
+      if (!map.has(r.patientId)) map.set(r.patientId, []);
+      map.get(r.patientId)!.push(r);
+    }
+    return [...map.entries()]
+      .map(([patientId, recs]) => ({
+        patientId,
+        patientName: recs[0].patient?.fullName ?? `Unknown patient (${patientId.slice(0, 8)}…)`,
+        records: recs,
+      }))
+      .sort((a, b) => a.patientName.localeCompare(b.patientName));
+  }, [filtered]);
 
   const selected = filtered.find((r) => r.id === selectedId) ?? null;
 
@@ -42,11 +62,11 @@ export default function DoctorRecords() {
       <div className="page-header">
         <div>
           <h2>Patient records</h2>
-          <p className="page-subtitle">Visit notes for patients under your care.</p>
+          <p className="page-subtitle">Visit notes for patients under your care, grouped by patient.</p>
         </div>
         <input
           className="input input--search"
-          placeholder="Filter by patient ID, appointment ID or ICD code…"
+          placeholder="Search by patient name or ICD code…"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
         />
@@ -63,22 +83,31 @@ export default function DoctorRecords() {
 
       {records && records.length > 0 && (
         <div className="records-layout">
-          <ul className="records-list card">
-            {filtered.map((r) => (
-              <li
-                key={r.id}
-                className={`records-list__item ${r.id === selectedId ? 'records-list__item--active' : ''}`}
-                onClick={() => setSelectedId(r.id)}
-              >
-                <div className="records-list__col">
-                  <span>Visit on {fmtDate(r.createdAt)}</span>
-                  <span className="muted records-list__sub">Patient {r.patientId.slice(0, 8)}…</span>
-                </div>
-                {r.finalized ? <Badge tone="green">Finalized</Badge> : <Badge tone="amber">Draft</Badge>}
-              </li>
+          <div className="records-list card">
+            {groups.map((g) => (
+              <details key={g.patientId} className="records-group" open={groups.length <= 5}>
+                <summary className="records-group__summary">
+                  <span>{g.patientName}</span>
+                  <span className="muted records-group__count">
+                    {g.records.length} visit{g.records.length === 1 ? '' : 's'}
+                  </span>
+                </summary>
+                <ul className="records-group__list">
+                  {g.records.map((r) => (
+                    <li
+                      key={r.id}
+                      className={`records-list__item ${r.id === selectedId ? 'records-list__item--active' : ''}`}
+                      onClick={() => setSelectedId(r.id)}
+                    >
+                      <span>{fmtDate(r.appointment?.startTime ?? r.createdAt)}</span>
+                      {r.finalized ? <Badge tone="green">Finalized</Badge> : <Badge tone="amber">Draft</Badge>}
+                    </li>
+                  ))}
+                </ul>
+              </details>
             ))}
-            {filtered.length === 0 && <li className="muted records-list__none">No matches.</li>}
-          </ul>
+            {groups.length === 0 && <p className="muted records-list__none">No matches.</p>}
+          </div>
           <div className="card records-detail">
             {selected ? (
               <div className="stack">

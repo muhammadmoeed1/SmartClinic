@@ -51,7 +51,10 @@ export default function PatientRecords() {
                 className={`records-list__item ${r.id === selectedId ? 'records-list__item--active' : ''}`}
                 onClick={() => setSelectedId(r.id)}
               >
-                <span>Visit on {fmtDate(r.createdAt)}</span>
+                <div className="records-list__col">
+                  <span>{fmtDate(r.appointment?.startTime ?? r.createdAt)}</span>
+                  {r.doctor && <span className="muted records-list__sub">{r.doctor.fullName}</span>}
+                </div>
                 {r.finalized ? <Badge tone="green">Finalized</Badge> : <Badge tone="amber">Draft</Badge>}
               </li>
             ))}

@@ -1,7 +1,9 @@
-import { Body, Controller, Get, HttpCode, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Patch, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
-import { LoginDto, RefreshDto, RegisterDto } from './dto';
+import {
+  ChangePasswordDto, LoginDto, RefreshDto, RegisterDto, UpdateProfileDto,
+} from './dto';
 import { CurrentUser, JwtUser, Public } from '../common/decorators';
 
 @ApiTags('auth')
@@ -37,5 +39,20 @@ export class AuthController {
   @ApiOperation({ summary: 'Current authenticated user' })
   me(@CurrentUser() user: JwtUser) {
     return this.auth.me(user.id);
+  }
+
+  @Patch('me')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Update own profile (phone)' })
+  updateMe(@CurrentUser() user: JwtUser, @Body() dto: UpdateProfileDto) {
+    return this.auth.updateProfile(user.id, dto);
+  }
+
+  @Post('change-password')
+  @HttpCode(200)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Change own password (requires current password)' })
+  changePassword(@CurrentUser() user: JwtUser, @Body() dto: ChangePasswordDto) {
+    return this.auth.changePassword(user.id, dto.currentPassword, dto.newPassword);
   }
 }

@@ -2,10 +2,10 @@ import {
   BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, In, Repository } from 'typeorm';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Appointment, LabFile, PreAuth, VisitRecord } from '../entities';
+import { Appointment, DoctorProfile, LabFile, PreAuth, VisitRecord } from '../entities';
 import { PreAuthStatus, Role } from '../common/enums';
 import { JwtUser } from '../common/decorators';
 import { EmbeddingService } from '../embedding/embedding.service';
@@ -21,11 +21,12 @@ export class RecordsService {
     @InjectRepository(Appointment) private appointments: Repository<Appointment>,
     @InjectRepository(PreAuth) private preauths: Repository<PreAuth>,
     @InjectRepository(LabFile) private files: Repository<LabFile>,
+    @InjectRepository(DoctorProfile) private doctorProfiles: Repository<DoctorProfile>,
     private embeddings: EmbeddingService,
     @InjectDataSource() private dataSource: DataSource,
   ) {}
 
-  private toDto(r: VisitRecord) {
+  private toDto(r: VisitRecord, specialty?: string) {
     return {
       id: r.id,
       appointmentId: r.appointmentId,
@@ -40,7 +41,7 @@ export class RecordsService {
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,
       patient: r.patient ? { id: r.patient.id, fullName: r.patient.fullName } : undefined,
-      doctor: r.doctor ? { id: r.doctor.id, fullName: r.doctor.fullName } : undefined,
+      doctor: r.doctor ? { id: r.doctor.id, fullName: r.doctor.fullName, specialty } : undefined,
       appointment: r.appointment
         ? { startTime: r.appointment.startTime, status: r.appointment.status }
         : undefined,
@@ -48,6 +49,12 @@ export class RecordsService {
         id: f.id, filename: f.filename, size: f.size, mimetype: f.mimetype,
       })),
     };
+  }
+
+  private async specialtiesByDoctorId(doctorIds: string[]): Promise<Map<string, string>> {
+    if (doctorIds.length === 0) return new Map();
+    const profiles = await this.doctorProfiles.findBy({ userId: In([...new Set(doctorIds)]) });
+    return new Map(profiles.map((p) => [p.userId, p.specialty]));
   }
 
   async list(user: JwtUser, patientId?: string) {
@@ -68,7 +75,8 @@ export class RecordsService {
       throw new ForbiddenException('Records are visible to patients and doctors only');
     }
     const rows = await qb.getMany();
-    return rows.map((r) => this.toDto(r));
+    const specialties = await this.specialtiesByDoctorId(rows.map((r) => r.doctorId));
+    return rows.map((r) => this.toDto(r, specialties.get(r.doctorId)));
   }
 
   async getOne(user: JwtUser, id: string) {
@@ -78,7 +86,8 @@ export class RecordsService {
     });
     if (!record) throw new NotFoundException('Record not found');
     this.assertCanView(user, record);
-    return this.toDto(record);
+    const specialties = await this.specialtiesByDoctorId([record.doctorId]);
+    return this.toDto(record, specialties.get(record.doctorId));
   }
 
   private assertCanView(user: JwtUser, record: VisitRecord) {

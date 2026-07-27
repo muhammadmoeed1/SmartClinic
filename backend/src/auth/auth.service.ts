@@ -103,4 +103,23 @@ export class AuthService {
     if (!user) throw new UnauthorizedException();
     return this.toDto(user);
   }
+
+  async updateProfile(userId: string, dto: { phone?: string }) {
+    const user = await this.users.findOne({ where: { id: userId }, relations: { doctorProfile: true } });
+    if (!user) throw new UnauthorizedException();
+    if (dto.phone !== undefined) user.phone = dto.phone;
+    await this.users.save(user);
+    return this.toDto(user);
+  }
+
+  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+    const user = await this.users.findOneBy({ id: userId });
+    if (!user) throw new UnauthorizedException();
+    if (!(await bcrypt.compare(currentPassword, user.passwordHash))) {
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+    user.passwordHash = await bcrypt.hash(newPassword, 10);
+    await this.users.update(user.id, { passwordHash: user.passwordHash });
+    return { success: true };
+  }
 }

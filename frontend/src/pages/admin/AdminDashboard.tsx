@@ -18,6 +18,7 @@ import type {
   ConsultationDurationRow,
   InsuranceStatsRow,
   NoShowTrendRow,
+  ObservabilityResponse,
   OccupancyRow,
 } from '../../types';
 import {
@@ -28,6 +29,7 @@ import {
   type OccupancyPeriod,
 } from '../../api/analytics';
 import { getAppointments } from '../../api/appointments';
+import { getObservability } from '../../api/ai';
 import { getErrorMessage, todayStr } from '../../utils';
 import Button from '../../components/Button';
 import Spinner from '../../components/Spinner';
@@ -38,6 +40,8 @@ import {
   IconWarning,
 } from '../../components/Icons';
 import { toast } from '../../store/toasts';
+
+type ObsWindow = 24 | 168 | undefined; // 24h, 7 days, all time
 
 // Validated categorical palette (dataviz skill): blue, aqua, yellow.
 const C_BLUE = '#2a78d6';
@@ -56,6 +60,9 @@ export default function AdminDashboard() {
   const [insurance, setInsurance] = useState<InsuranceStatsRow[] | null>(null);
   const [todayCount, setTodayCount] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [obs, setObs] = useState<ObservabilityResponse | null>(null);
+  const [obsWindow, setObsWindow] = useState<ObsWindow>(24);
+  const [obsLoading, setObsLoading] = useState(true);
 
   useEffect(() => {
     Promise.all([
@@ -72,6 +79,24 @@ export default function AdminDashboard() {
       })
       .catch((err) => setError(getErrorMessage(err)));
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setObsLoading(true);
+    getObservability(obsWindow)
+      .then((r) => {
+        if (!cancelled) setObs(r);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(getErrorMessage(err));
+      })
+      .finally(() => {
+        if (!cancelled) setObsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [obsWindow]);
 
   useEffect(() => {
     let cancelled = false;
@@ -376,6 +401,98 @@ export default function AdminDashboard() {
           )}
         </section>
       </div>
+
+      <section className="card">
+        <div className="card-title-row">
+          <div>
+            <h3 className="card__title">AI observability</h3>
+            <p className="page-subtitle" style={{ marginTop: 2 }}>
+              Real call metrics from every LLM feature — latency, token usage, cache efficiency.
+            </p>
+          </div>
+          <div className="segmented">
+            {([
+              { key: 24, label: '24h' },
+              { key: 168, label: '7 days' },
+              { key: undefined, label: 'All time' },
+            ] as Array<{ key: ObsWindow; label: string }>).map((opt) => (
+              <button
+                key={opt.label}
+                className={`segmented__btn ${obsWindow === opt.key ? 'segmented__btn--active' : ''}`}
+                onClick={() => setObsWindow(opt.key)}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {obsLoading && <Spinner block label="Loading observability…" />}
+
+        {!obsLoading && obs && (
+          <>
+            <div className="stat-row">
+              <StatCard
+                label="RAG cache hit rate"
+                value={`${Math.round(obs.ragCache.hitRate * 100)}%`}
+                caption={`${obs.ragCache.hits} hits · ${obs.ragCache.misses} misses`}
+                tone="teal"
+              />
+              <StatCard
+                label="Total LLM calls"
+                value={String(obs.llmCalls.reduce((s, r) => s + r.calls, 0))}
+                caption="Across all AI features"
+                tone="blue"
+              />
+              <StatCard
+                label="Overall success rate"
+                value={
+                  obs.llmCalls.length === 0
+                    ? '—'
+                    : `${Math.round(
+                        (obs.llmCalls.reduce((s, r) => s + r.successRate * r.calls, 0) /
+                          Math.max(1, obs.llmCalls.reduce((s, r) => s + r.calls, 0))) *
+                          100,
+                      )}%`
+                }
+                caption="Weighted across features"
+                tone="violet"
+              />
+            </div>
+
+            {obs.llmCalls.length === 0 ? (
+              <p className="muted">No LLM calls recorded in this window yet.</p>
+            ) : (
+              <div className="table-wrap">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Feature</th>
+                      <th>Calls</th>
+                      <th>Success rate</th>
+                      <th>Avg latency</th>
+                      <th>Input tokens</th>
+                      <th>Output tokens</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {obs.llmCalls.map((row) => (
+                      <tr key={row.feature}>
+                        <td>{row.feature}</td>
+                        <td>{row.calls}</td>
+                        <td>{Math.round(row.successRate * 100)}%</td>
+                        <td>{row.avgLatencyMs.toLocaleString()} ms</td>
+                        <td>{row.totalInputTokens.toLocaleString()}</td>
+                        <td>{row.totalOutputTokens.toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
+        )}
+      </section>
     </div>
   );
 }

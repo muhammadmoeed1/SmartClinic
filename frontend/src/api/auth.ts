@@ -22,3 +22,12 @@ export async function getMe(): Promise<UserDto> {
   const res = await client.get<UserDto>('/auth/me');
   return res.data;
 }
+
+export async function updateProfile(phone: string): Promise<UserDto> {
+  const res = await client.patch<UserDto>('/auth/me', { phone });
+  return res.data;
+}
+
+export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  await client.post('/auth/change-password', { currentPassword, newPassword });
+}

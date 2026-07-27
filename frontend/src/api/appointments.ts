@@ -1,8 +1,11 @@
 import client from './client';
-import type { AppointmentDto, AppointmentStatus, SlotDto, WaitlistEntryDto } from '../types';
+import type {
+  AppointmentDto, AppointmentStatus, SlotDto, WaitlistEntryDto, WaitlistListEntryDto,
+} from '../types';
 
 export interface AppointmentQuery {
   date?: string; // YYYY-MM-DD
+  from?: string; // YYYY-MM-DD, open-ended range: all appointments on/after this date
   status?: AppointmentStatus;
   doctorId?: string;
 }
@@ -62,4 +65,15 @@ export async function joinWaitlist(
     ...(patientId ? { patientId } : {}),
   });
   return res.data;
+}
+
+export async function getWaitlist(doctorId?: string, date?: string): Promise<WaitlistListEntryDto[]> {
+  const res = await client.get<WaitlistListEntryDto[]>('/appointments/waitlist', {
+    params: { doctorId, date },
+  });
+  return res.data;
+}
+
+export async function notifyWaitlistEntry(id: string): Promise<void> {
+  await client.post(`/appointments/waitlist/${id}/notify`);
 }

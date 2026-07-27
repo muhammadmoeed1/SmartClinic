@@ -18,6 +18,10 @@ export class WaitlistEntry {
   @JoinColumn({ name: 'patientId' })
   patient: User;
 
+  @ManyToOne(() => User, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'doctorId' })
+  doctor: User;
+
   @Column({ type: 'date' })
   date: string;
 

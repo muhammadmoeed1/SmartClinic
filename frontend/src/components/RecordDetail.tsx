@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { VisitRecordDto } from '../types';
 import { downloadRecordFile } from '../api/records';
-import { fmtDateTime, formatBytes, getErrorMessage } from '../utils';
+import { fmtDate, formatBytes, getErrorMessage } from '../utils';
 import Badge from './Badge';
 import { IconDownload } from './Icons';
 import { toast } from '../store/toasts';
@@ -29,11 +29,22 @@ export default function RecordDetail({ record }: { record: VisitRecordDto }) {
     }
   };
 
+  const visitDate = fmtDate(record.appointment?.startTime ?? record.createdAt);
+  const title = [
+    record.doctor && `Dr. ${record.doctor.fullName.replace(/^Dr\.?\s*/i, '')}`,
+    record.patient?.fullName,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
   return (
     <div className="stack">
-      <div className="record-meta">
-        <span className="muted">Last updated {fmtDateTime(record.updatedAt)}</span>
-        {record.finalized ? <Badge tone="green">Finalized</Badge> : <Badge tone="amber">Draft</Badge>}
+      <div className="record-header">
+        {title && <h3 className="record-header__title">{title}</h3>}
+        <div className="record-meta">
+          <span className="muted">Visit on {visitDate}</span>
+          {record.finalized ? <Badge tone="green">Finalized</Badge> : <Badge tone="amber">Draft</Badge>}
+        </div>
       </div>
       {SOAP_SECTIONS.map(({ key, label }) => (
         <div key={key} className="soap-section">
