@@ -32,6 +32,27 @@ export class CreateDoctorDto {
   bio?: string;
 }
 
+export class CreateReceptionistDto {
+  @ApiProperty()
+  @IsEmail()
+  email: string;
+
+  @ApiProperty({ minLength: 8 })
+  @IsString()
+  @MinLength(8)
+  password: string;
+
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  fullName: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  phone?: string;
+}
+
 export class CreateRoomDto {
   @ApiProperty()
   @IsString()

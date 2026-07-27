@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import {
-  IsDateString, IsEnum, IsISO8601, IsNotEmpty, IsOptional, IsString, IsUUID, Matches,
+  IsDateString, IsEnum, IsISO8601, IsInt, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, Max, Min,
 } from 'class-validator';
 import { AppointmentStatus } from '../common/enums';
 
@@ -68,6 +68,19 @@ export class ListAppointmentsQueryDto {
   @IsOptional()
   @IsUUID()
   doctorId?: string;
+}
+
+export class CreateRatingDto {
+  @ApiProperty({ minimum: 1, maximum: 5 })
+  @IsInt()
+  @Min(1)
+  @Max(5)
+  score: number;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  comment?: string;
 }
 
 export class JoinWaitlistDto {

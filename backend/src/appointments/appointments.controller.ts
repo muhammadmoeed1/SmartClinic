@@ -4,7 +4,7 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AppointmentsService } from './appointments.service';
 import {
-  CreateAppointmentDto, JoinWaitlistDto, ListAppointmentsQueryDto,
+  CreateAppointmentDto, CreateRatingDto, JoinWaitlistDto, ListAppointmentsQueryDto,
   SlotsQueryDto, UpdateAppointmentDto,
 } from './dto';
 import { CurrentUser, JwtUser, Roles } from '../common/decorators';
@@ -70,5 +70,16 @@ export class AppointmentsController {
     @Body() dto: UpdateAppointmentDto,
   ) {
     return this.appointments.update(user, id, dto);
+  }
+
+  @Post(':id/rating')
+  @Roles(Role.PATIENT)
+  @ApiOperation({ summary: 'Rate a completed appointment (1-5 stars, once per visit)' })
+  submitRating(
+    @CurrentUser() user: JwtUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateRatingDto,
+  ) {
+    return this.appointments.submitRating(user, id, dto);
   }
 }

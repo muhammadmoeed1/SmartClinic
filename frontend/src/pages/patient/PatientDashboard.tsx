@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useAppointmentsStore } from '../../store/appointments';
 import { useNotificationsStore, notificationText } from '../../store/notifications';
-import { updateAppointment } from '../../api/appointments';
+import { submitRating, updateAppointment } from '../../api/appointments';
 import type { AppointmentDto } from '../../types';
 import { clinicHour, fmtDateTime, getErrorMessage, hoursUntil } from '../../utils';
 import { StatusBadge } from '../../components/Badge';
@@ -11,6 +11,8 @@ import Button from '../../components/Button';
 import Spinner from '../../components/Spinner';
 import EmptyState from '../../components/EmptyState';
 import IntakeChat from '../../components/IntakeChat';
+import Modal from '../../components/Modal';
+import StarRating from '../../components/StarRating';
 import { IconChat, IconClock } from '../../components/Icons';
 import { toast } from '../../store/toasts';
 
@@ -36,6 +38,7 @@ export default function PatientDashboard() {
   const notifications = useNotificationsStore((s) => s.items);
   const [intakeFor, setIntakeFor] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [ratingFor, setRatingFor] = useState<AppointmentDto | null>(null);
 
   useEffect(() => {
     void fetch();
@@ -50,6 +53,15 @@ export default function PatientDashboard() {
             new Date(a.endTime).getTime() > Date.now(),
         )
         .sort((a, b) => a.startTime.localeCompare(b.startTime)),
+    [items],
+  );
+
+  const recentCompleted = useMemo(
+    () =>
+      items
+        .filter((a) => a.status === 'completed')
+        .sort((a, b) => b.startTime.localeCompare(a.startTime))
+        .slice(0, 5),
     [items],
   );
 
@@ -173,7 +185,114 @@ export default function PatientDashboard() {
         </section>
       </div>
 
+      {recentCompleted.length > 0 && (
+        <section className="card">
+          <h3 className="card__title">Recent visits</h3>
+          <ul className="appt-list">
+            {recentCompleted.map((a) => (
+              <li key={a.id} className="appt-item">
+                <div className="appt-item__main">
+                  <span className="appt-item__doctor">{a.doctor.fullName}</span>
+                  <span className="appt-item__meta">
+                    {a.doctor.specialty} · {fmtDateTime(a.startTime)}
+                  </span>
+                </div>
+                <div className="appt-item__side">
+                  {a.rating ? (
+                    <StarRating value={a.rating.score} size={16} />
+                  ) : (
+                    <Button size="sm" variant="secondary" onClick={() => setRatingFor(a)}>
+                      Rate this visit
+                    </Button>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {intakeFor && <IntakeChat appointmentId={intakeFor} onClose={() => setIntakeFor(null)} />}
+
+      {ratingFor && (
+        <RatingModal
+          appointment={ratingFor}
+          onClose={() => setRatingFor(null)}
+          onSubmitted={(rating) => {
+            useAppointmentsStore.getState().upsert({ ...ratingFor, rating });
+            setRatingFor(null);
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+function RatingModal({
+  appointment,
+  onClose,
+  onSubmitted,
+}: {
+  appointment: AppointmentDto;
+  onClose: () => void;
+  onSubmitted: (rating: { score: number; comment: string | null }) => void;
+}) {
+  const [score, setScore] = useState(0);
+  const [comment, setComment] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    if (score === 0) {
+      setError('Pick a star rating first.');
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const rating = await submitRating(appointment.id, score, comment.trim() || undefined);
+      toast('Thanks for your feedback.', 'success');
+      onSubmitted(rating);
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal
+      title="Rate your visit"
+      onClose={onClose}
+      footer={
+        <div className="actions-row">
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button loading={saving} onClick={() => void submit()}>
+            Submit rating
+          </Button>
+        </div>
+      }
+    >
+      <div className="stack">
+        <p className="muted">
+          {appointment.doctor.fullName} ({appointment.doctor.specialty}) ·{' '}
+          {fmtDateTime(appointment.startTime)}
+        </p>
+        <StarRating value={score} onChange={setScore} size={28} />
+        <label className="form-group">
+          <span>Comments (optional)</span>
+          <textarea
+            className="input"
+            rows={3}
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            placeholder="What went well, or what could be better?"
+          />
+        </label>
+        {error && <p className="inline-error">{error}</p>}
+      </div>
+    </Modal>
   );
 }

@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { UsersService } from './users.service';
-import { CreateDoctorDto, CreateRoomDto } from './dto';
+import { CreateDoctorDto, CreateReceptionistDto, CreateRoomDto } from './dto';
 import { Public, Roles } from '../common/decorators';
 import { Role } from '../common/enums';
 
@@ -37,6 +37,12 @@ export class AdminController {
   @ApiOperation({ summary: 'Create a doctor account (admin)' })
   createDoctor(@Body() dto: CreateDoctorDto) {
     return this.users.createDoctor(dto);
+  }
+
+  @Post('receptionists')
+  @ApiOperation({ summary: 'Create a receptionist account (admin)' })
+  createReceptionist(@Body() dto: CreateReceptionistDto) {
+    return this.users.createReceptionist(dto);
   }
 
   @Get('users')

@@ -54,6 +54,14 @@ export const IconUsers = (p: IconProps) => (
   </svg>
 );
 
+export const IconPrint = (p: IconProps) => (
+  <svg {...base(p)}>
+    <polyline points="6 9 6 2 18 2 18 9" />
+    <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+    <rect x="6" y="14" width="12" height="8" />
+  </svg>
+);
+
 export const IconMenu = (p: IconProps) => (
   <svg {...base(p)}>
     <line x1="3" y1="6" x2="21" y2="6" />

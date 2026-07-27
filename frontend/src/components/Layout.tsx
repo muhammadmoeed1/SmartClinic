@@ -18,6 +18,7 @@ import {
   IconSettings,
   IconShield,
   IconStethoscope,
+  IconUsers,
   LogoMark,
 } from './Icons';
 
@@ -51,6 +52,7 @@ const NAV: Record<Role, NavItem[]> = {
   admin: [
     { to: '/admin', label: 'Analytics', icon: <IconChart />, end: true },
     { to: '/admin/doctors', label: 'Doctors', icon: <IconStethoscope /> },
+    { to: '/admin/receptionists', label: 'Receptionists', icon: <IconUsers /> },
     { to: '/admin/rooms', label: 'Rooms', icon: <IconRoom /> },
     { to: '/admin/health', label: 'System health', icon: <IconActivity /> },
     { to: '/admin/settings', label: 'Account settings', icon: <IconSettings /> },

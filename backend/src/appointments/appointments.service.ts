@@ -3,13 +3,14 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, DataSource, In, Repository } from 'typeorm';
-import { Appointment, User, WaitlistEntry } from '../entities';
+import { Appointment, Rating, User, WaitlistEntry } from '../entities';
 import { AppointmentStatus, Role } from '../common/enums';
 import { JwtUser } from '../common/decorators';
 import { NotificationsService } from '../notifications/notifications.service';
 import { clinicDateStr, clinicDayRange, clinicTime } from '../common/clinic-time';
 import {
-  CreateAppointmentDto, JoinWaitlistDto, ListAppointmentsQueryDto, UpdateAppointmentDto,
+  CreateAppointmentDto, CreateRatingDto, JoinWaitlistDto, ListAppointmentsQueryDto,
+  UpdateAppointmentDto,
 } from './dto';
 
 export const SLOT_MINUTES = 30;
@@ -29,11 +30,12 @@ export class AppointmentsService {
     @InjectRepository(Appointment) private appointments: Repository<Appointment>,
     @InjectRepository(WaitlistEntry) private waitlist: Repository<WaitlistEntry>,
     @InjectRepository(User) private users: Repository<User>,
+    @InjectRepository(Rating) private ratings: Repository<Rating>,
     private dataSource: DataSource,
     private notifications: NotificationsService,
   ) {}
 
-  private toDto(a: Appointment) {
+  private toDto(a: Appointment, rating?: Rating) {
     return {
       id: a.id,
       patientId: a.patientId,
@@ -52,6 +54,7 @@ export class AppointmentsService {
       endTime: a.endTime,
       status: a.status,
       reason: a.reason,
+      rating: rating ? { score: rating.score, comment: rating.comment } : undefined,
     };
   }
 
@@ -171,7 +174,10 @@ export class AppointmentsService {
       qb.andWhere('a."startTime" >= :from', { from });
     }
     const rows = await qb.getMany();
-    return rows.map((r) => this.toDto(r));
+    if (rows.length === 0) return [];
+    const ratingRows = await this.ratings.findBy({ appointmentId: In(rows.map((r) => r.id)) });
+    const ratingMap = new Map(ratingRows.map((r) => [r.appointmentId, r]));
+    return rows.map((r) => this.toDto(r, ratingMap.get(r.id)));
   }
 
   async getOne(user: JwtUser, id: string) {
@@ -179,7 +185,30 @@ export class AppointmentsService {
     if (!appt) throw new NotFoundException('Appointment not found');
     if (user.role === Role.PATIENT && appt.patientId !== user.id) throw new ForbiddenException();
     if (user.role === Role.DOCTOR && appt.doctorId !== user.id) throw new ForbiddenException();
-    return this.toDto(appt);
+    const rating = await this.ratings.findOneBy({ appointmentId: id });
+    return this.toDto(appt, rating ?? undefined);
+  }
+
+  async submitRating(user: JwtUser, id: string, dto: CreateRatingDto) {
+    const appt = await this.appointments.findOneBy({ id });
+    if (!appt) throw new NotFoundException('Appointment not found');
+    if (appt.patientId !== user.id) throw new ForbiddenException();
+    if (appt.status !== AppointmentStatus.COMPLETED) {
+      throw new BadRequestException('Only completed appointments can be rated');
+    }
+    const existing = await this.ratings.findOneBy({ appointmentId: id });
+    if (existing) throw new ConflictException('This visit has already been rated');
+
+    const saved = await this.ratings.save(
+      this.ratings.create({
+        appointmentId: id,
+        patientId: appt.patientId,
+        doctorId: appt.doctorId,
+        score: dto.score,
+        comment: dto.comment ?? null,
+      }),
+    );
+    return { score: saved.score, comment: saved.comment };
   }
 
   async update(user: JwtUser, id: string, dto: UpdateAppointmentDto) {

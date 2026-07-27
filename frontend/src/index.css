@@ -1318,6 +1318,27 @@ textarea.input { resize: vertical; }
 .doctor-card__info span { color: var(--muted); font-size: 0.84rem; }
 .doctor-card__bio { font-style: italic; }
 
+.doctor-card__rating { display: inline-flex; align-items: center; gap: 6px; font-size: 0.8rem; color: var(--muted); }
+
+.star-rating { display: inline-flex; gap: 2px; }
+
+.star-rating__star {
+  display: inline-flex;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--line);
+  cursor: default;
+}
+
+.star-rating__star--filled { color: var(--amber-500); }
+
+.star-rating--interactive .star-rating__star {
+  cursor: pointer;
+  transition: transform var(--dur) var(--ease);
+}
+.star-rating--interactive .star-rating__star:hover { transform: scale(1.15); }
+
 .confirm-grid { display: flex; flex-direction: column; gap: 12px; }
 
 .success-card { text-align: center; display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 40px 24px; }
@@ -2191,4 +2212,22 @@ textarea.input { resize: vertical; }
   .board-controls { flex-direction: column; align-items: stretch; }
   .board-controls .input { min-width: 0; width: 100%; }
   .board-row { grid-template-columns: 56px 1fr; }
+}
+
+/* --- Print (visit summary "Download as PDF") --------------------------------------------------------
+   Only .record-print is rendered; everything else (sidebar, topbar, records list,
+   the print button itself) is hidden so the browser's print/save-as-PDF output
+   is just the clinical note, not the whole app chrome. */
+@media print {
+  body * { visibility: hidden; }
+  .record-print, .record-print * { visibility: visible; }
+  .record-print {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    padding: 24px;
+  }
+  .record-actions { display: none; }
+  .file-list button { display: none; }
 }

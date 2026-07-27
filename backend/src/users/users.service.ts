@@ -2,9 +2,9 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
-import { DoctorProfile, Room, User } from '../entities';
+import { DoctorProfile, Rating, Room, User } from '../entities';
 import { Role, SPECIALTIES } from '../common/enums';
-import { CreateDoctorDto, CreateRoomDto } from './dto';
+import { CreateDoctorDto, CreateReceptionistDto, CreateRoomDto } from './dto';
 
 @Injectable()
 export class UsersService {
@@ -12,6 +12,7 @@ export class UsersService {
     @InjectRepository(User) private users: Repository<User>,
     @InjectRepository(DoctorProfile) private profiles: Repository<DoctorProfile>,
     @InjectRepository(Room) private rooms: Repository<Room>,
+    @InjectRepository(Rating) private ratings: Repository<Rating>,
   ) {}
 
   specialties(): string[] {
@@ -25,12 +26,29 @@ export class UsersService {
       relations: { user: true },
       order: { specialty: 'ASC' },
     });
-    return profiles.map((p) => ({
-      id: p.userId,
-      fullName: p.user.fullName,
-      specialty: p.specialty,
-      bio: p.bio,
-    }));
+    if (profiles.length === 0) return [];
+
+    const stats = await this.ratings
+      .createQueryBuilder('r')
+      .select('r."doctorId"', 'doctorId')
+      .addSelect('AVG(r.score)', 'avgRating')
+      .addSelect('COUNT(*)', 'ratingCount')
+      .where('r."doctorId" IN (:...ids)', { ids: profiles.map((p) => p.userId) })
+      .groupBy('r."doctorId"')
+      .getRawMany();
+    const statsMap = new Map(stats.map((s) => [s.doctorId, s]));
+
+    return profiles.map((p) => {
+      const s = statsMap.get(p.userId);
+      return {
+        id: p.userId,
+        fullName: p.user.fullName,
+        specialty: p.specialty,
+        bio: p.bio,
+        avgRating: s ? Math.round(parseFloat(s.avgRating) * 10) / 10 : null,
+        ratingCount: s ? parseInt(s.ratingCount, 10) : 0,
+      };
+    });
   }
 
   async createDoctor(dto: CreateDoctorDto) {
@@ -60,6 +78,28 @@ export class UsersService {
       phone: user.phone,
       role: user.role,
       doctorProfile: { specialty: dto.specialty, bio: dto.bio ?? null },
+    };
+  }
+
+  async createReceptionist(dto: CreateReceptionistDto) {
+    if (await this.users.findOneBy({ email: dto.email.toLowerCase() })) {
+      throw new ConflictException('Email already registered');
+    }
+    const user = await this.users.save(
+      this.users.create({
+        email: dto.email.toLowerCase(),
+        passwordHash: await bcrypt.hash(dto.password, 10),
+        fullName: dto.fullName,
+        phone: dto.phone ?? null,
+        role: Role.RECEPTIONIST,
+      }),
+    );
+    return {
+      id: user.id,
+      email: user.email,
+      fullName: user.fullName,
+      phone: user.phone,
+      role: user.role,
     };
   }
 

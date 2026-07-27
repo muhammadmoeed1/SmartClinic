@@ -8,6 +8,7 @@ import { fmtDateTime, getErrorMessage, isAiFallback, todayStr } from '../../util
 import Button from '../../components/Button';
 import Spinner from '../../components/Spinner';
 import SlotGrid from '../../components/SlotGrid';
+import StarRating from '../../components/StarRating';
 import { IconSparkle } from '../../components/Icons';
 import { toast } from '../../store/toasts';
 
@@ -312,6 +313,12 @@ function ManualDoctorPicker({
               <div className="doctor-card__info">
                 <strong>{d.fullName}</strong>
                 <span>{d.specialty}</span>
+                {d.avgRating != null && (
+                  <span className="doctor-card__rating">
+                    <StarRating value={Math.round(d.avgRating)} size={13} />
+                    {d.avgRating.toFixed(1)} ({d.ratingCount})
+                  </span>
+                )}
                 {d.bio && <span className="doctor-card__bio">{d.bio}</span>}
               </div>
               <Button

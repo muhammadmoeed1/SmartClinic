@@ -15,6 +15,18 @@ export async function createDoctor(payload: CreateDoctorPayload): Promise<UserDt
   return res.data;
 }
 
+export interface CreateReceptionistPayload {
+  email: string;
+  password: string;
+  fullName: string;
+  phone: string;
+}
+
+export async function createReceptionist(payload: CreateReceptionistPayload): Promise<UserDto> {
+  const res = await client.post<UserDto>('/admin/receptionists', payload);
+  return res.data;
+}
+
 export async function getRooms(): Promise<RoomDto[]> {
   const res = await client.get<RoomDto[]>('/admin/rooms');
   return res.data;

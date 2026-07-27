@@ -1,18 +1,15 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import type { DoctorDto } from '../../types';
-import { getDoctors, getSpecialties } from '../../api/doctors';
-import { createDoctor } from '../../api/admin';
+import type { UserDto } from '../../types';
+import { createReceptionist, getUsers } from '../../api/admin';
 import { getErrorMessage } from '../../utils';
 import Button from '../../components/Button';
 import Spinner from '../../components/Spinner';
 import Modal from '../../components/Modal';
 import EmptyState from '../../components/EmptyState';
-import Badge from '../../components/Badge';
-import StarRating from '../../components/StarRating';
 import { toast } from '../../store/toasts';
 
-export default function AdminDoctors() {
-  const [doctors, setDoctors] = useState<DoctorDto[] | null>(null);
+export default function AdminReceptionists() {
+  const [receptionists, setReceptionists] = useState<UserDto[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -21,7 +18,7 @@ export default function AdminDoctors() {
     setLoading(true);
     setError(null);
     try {
-      setDoctors(await getDoctors());
+      setReceptionists(await getUsers('receptionist'));
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -37,53 +34,42 @@ export default function AdminDoctors() {
     <div className="page">
       <div className="page-header">
         <div>
-          <h2>Doctors</h2>
-          <p className="page-subtitle">Clinical staff and their specialties.</p>
+          <h2>Receptionists</h2>
+          <p className="page-subtitle">
+            Front-desk staff accounts. Employees don't self-register — accounts are created here.
+          </p>
         </div>
-        <Button onClick={() => setCreating(true)}>Add doctor</Button>
+        <Button onClick={() => setCreating(true)}>Add receptionist</Button>
       </div>
 
-      {loading && <Spinner block label="Loading doctors…" />}
+      {loading && <Spinner block label="Loading receptionists…" />}
       {error && <p className="inline-error">{error}</p>}
-      {doctors && doctors.length === 0 && (
+      {receptionists && receptionists.length === 0 && (
         <EmptyState
-          title="No doctors yet"
-          message="Add your first doctor to start taking bookings."
-          action={<Button onClick={() => setCreating(true)}>Add doctor</Button>}
+          title="No receptionists yet"
+          message="Add your first front-desk account to start managing bookings."
+          action={<Button onClick={() => setCreating(true)}>Add receptionist</Button>}
         />
       )}
 
-      {doctors && doctors.length > 0 && (
+      {receptionists && receptionists.length > 0 && (
         <div className="card table-wrap">
           <table className="table">
             <thead>
               <tr>
                 <th>Name</th>
-                <th>Specialty</th>
-                <th>Rating</th>
-                <th>Bio</th>
+                <th>Email</th>
+                <th>Phone</th>
               </tr>
             </thead>
             <tbody>
-              {doctors.map((d) => (
-                <tr key={d.id}>
+              {receptionists.map((r) => (
+                <tr key={r.id}>
                   <td>
-                    <strong>{d.fullName}</strong>
+                    <strong>{r.fullName}</strong>
                   </td>
-                  <td>
-                    <Badge tone="teal">{d.specialty}</Badge>
-                  </td>
-                  <td>
-                    {d.avgRating != null ? (
-                      <span className="doctor-card__rating">
-                        <StarRating value={Math.round(d.avgRating)} size={13} />
-                        {d.avgRating.toFixed(1)} ({d.ratingCount})
-                      </span>
-                    ) : (
-                      <span className="muted">No ratings yet</span>
-                    )}
-                  </td>
-                  <td className="muted">{d.bio ?? '—'}</td>
+                  <td className="muted">{r.email}</td>
+                  <td className="muted">{r.phone ?? '—'}</td>
                 </tr>
               ))}
             </tbody>
@@ -92,7 +78,7 @@ export default function AdminDoctors() {
       )}
 
       {creating && (
-        <CreateDoctorModal
+        <CreateReceptionistModal
           onClose={() => setCreating(false)}
           onCreated={() => {
             setCreating(false);
@@ -104,40 +90,32 @@ export default function AdminDoctors() {
   );
 }
 
-function CreateDoctorModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
-  const [specialties, setSpecialties] = useState<string[]>([]);
+function CreateReceptionistModal({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void;
+  onCreated: () => void;
+}) {
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
-  const [specialty, setSpecialty] = useState('');
-  const [bio, setBio] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    getSpecialties()
-      .then((s) => {
-        setSpecialties(s);
-        if (s.length > 0) setSpecialty(s[0]);
-      })
-      .catch((err) => setError(getErrorMessage(err)));
-  }, []);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setSaving(true);
     setError(null);
     try {
-      await createDoctor({
+      await createReceptionist({
         fullName: fullName.trim(),
         email: email.trim(),
         phone: phone.trim(),
         password,
-        specialty,
-        ...(bio.trim() ? { bio: bio.trim() } : {}),
       });
-      toast('Doctor account created.', 'success');
+      toast('Receptionist account created.', 'success');
       onCreated();
     } catch (err) {
       setError(getErrorMessage(err));
@@ -147,33 +125,17 @@ function CreateDoctorModal({ onClose, onCreated }: { onClose: () => void; onCrea
   };
 
   return (
-    <Modal title="Add doctor" onClose={onClose} wide>
+    <Modal title="Add receptionist" onClose={onClose}>
       <form className="stack" onSubmit={(e) => void submit(e)}>
-        <div className="form-row">
-          <label className="form-group">
-            <span>Full name</span>
-            <input
-              className="input"
-              required
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-            />
-          </label>
-          <label className="form-group">
-            <span>Specialty</span>
-            <select
-              className="input"
-              value={specialty}
-              onChange={(e) => setSpecialty(e.target.value)}
-            >
-              {specialties.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
+        <label className="form-group">
+          <span>Full name</span>
+          <input
+            className="input"
+            required
+            value={fullName}
+            onChange={(e) => setFullName(e.target.value)}
+          />
+        </label>
         <div className="form-row">
           <label className="form-group">
             <span>Email</span>
@@ -207,17 +169,13 @@ function CreateDoctorModal({ onClose, onCreated }: { onClose: () => void; onCrea
             onChange={(e) => setPassword(e.target.value)}
           />
         </label>
-        <label className="form-group">
-          <span>Bio (optional)</span>
-          <textarea className="input" rows={2} value={bio} onChange={(e) => setBio(e.target.value)} />
-        </label>
         {error && <p className="inline-error">{error}</p>}
         <div className="actions-row">
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
           <Button type="submit" loading={saving}>
-            Create doctor
+            Create receptionist
           </Button>
         </div>
       </form>

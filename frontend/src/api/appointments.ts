@@ -1,6 +1,6 @@
 import client from './client';
 import type {
-  AppointmentDto, AppointmentStatus, SlotDto, WaitlistEntryDto, WaitlistListEntryDto,
+  AppointmentDto, AppointmentStatus, RatingDto, SlotDto, WaitlistEntryDto, WaitlistListEntryDto,
 } from '../types';
 
 export interface AppointmentQuery {
@@ -76,4 +76,16 @@ export async function getWaitlist(doctorId?: string, date?: string): Promise<Wai
 
 export async function notifyWaitlistEntry(id: string): Promise<void> {
   await client.post(`/appointments/waitlist/${id}/notify`);
+}
+
+export async function submitRating(
+  appointmentId: string,
+  score: number,
+  comment?: string,
+): Promise<RatingDto> {
+  const res = await client.post<RatingDto>(`/appointments/${appointmentId}/rating`, {
+    score,
+    ...(comment ? { comment } : {}),
+  });
+  return res.data;
 }

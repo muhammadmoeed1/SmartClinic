@@ -34,6 +34,8 @@ export interface DoctorDto {
   fullName: string;
   specialty: string;
   bio: string | null;
+  avgRating?: number | null;
+  ratingCount?: number;
 }
 
 export interface RoomDto {
@@ -52,6 +54,11 @@ export type AppointmentStatus =
   | 'cancelled'
   | 'no_show';
 
+export interface RatingDto {
+  score: number;
+  comment: string | null;
+}
+
 export interface AppointmentDto {
   id: string;
   patientId: string;
@@ -63,6 +70,7 @@ export interface AppointmentDto {
   status: AppointmentStatus;
   reason: string | null;
   noShowRisk?: number;
+  rating?: RatingDto;
 }
 
 export interface SlotDto {

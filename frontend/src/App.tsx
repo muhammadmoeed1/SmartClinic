@@ -26,6 +26,7 @@ import ReceptionWaitlist from './pages/reception/ReceptionWaitlist';
 
 import AdminDashboard from './pages/admin/AdminDashboard';
 import AdminDoctors from './pages/admin/AdminDoctors';
+import AdminReceptionists from './pages/admin/AdminReceptionists';
 import AdminRooms from './pages/admin/AdminRooms';
 import AdminHealth from './pages/admin/AdminHealth';
 
@@ -73,6 +74,7 @@ export default function App() {
               <Route element={<RoleRoute role="admin" />}>
                 <Route path="/admin" element={<AdminDashboard />} />
                 <Route path="/admin/doctors" element={<AdminDoctors />} />
+                <Route path="/admin/receptionists" element={<AdminReceptionists />} />
                 <Route path="/admin/rooms" element={<AdminRooms />} />
                 <Route path="/admin/health" element={<AdminHealth />} />
                 <Route path="/admin/settings" element={<AccountSettings />} />

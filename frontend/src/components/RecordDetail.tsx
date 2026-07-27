@@ -3,7 +3,8 @@ import type { VisitRecordDto } from '../types';
 import { downloadRecordFile } from '../api/records';
 import { fmtDate, formatBytes, getErrorMessage } from '../utils';
 import Badge from './Badge';
-import { IconDownload } from './Icons';
+import Button from './Button';
+import { IconDownload, IconPrint } from './Icons';
 import { toast } from '../store/toasts';
 
 const SOAP_SECTIONS: Array<{ key: keyof VisitRecordDto & string; label: string }> = [
@@ -39,6 +40,12 @@ export default function RecordDetail({ record }: { record: VisitRecordDto }) {
 
   return (
     <div className="stack">
+      <div className="actions-row record-actions">
+        <Button variant="ghost" size="sm" onClick={() => window.print()}>
+          <IconPrint size={15} /> Print / Save as PDF
+        </Button>
+      </div>
+      <div className="stack record-print">
       <div className="record-header">
         {title && <h3 className="record-header__title">{title}</h3>}
         <div className="record-meta">
@@ -86,6 +93,7 @@ export default function RecordDetail({ record }: { record: VisitRecordDto }) {
           </ul>
         </div>
       )}
+      </div>
     </div>
   );
 }
